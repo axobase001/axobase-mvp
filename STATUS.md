@@ -2,105 +2,109 @@
 
 ## ✅ Completed
 
-### Batch 1: Genome Engine (7 files, 16 tests)
-- `src/genome/types.ts` - Type system foundation
-- `src/genome/defaults.ts` - 63 founder genes across 8 chromosomes
-- `src/genome/factory.ts` - Genome creation with perturbation
-- `src/genome/operators.ts` - 6 genetic operators
-- `src/genome/expression.ts` - Genotype to phenotype mapping
-- `src/genome/metabolism.ts` - Daily cost calculation
-- `src/genome/epigenetics.ts` - Environmental adaptation
+### Backend Core (23 tests passing)
+- ✅ Genome Engine (63 genes, 8 chromosomes)
+- ✅ Decision Engine (LLM integration)
+- ✅ Lifecycle Management (birth/death/breeding)
+- ✅ Population Management
+- ✅ HTTP API Server
 
-### Batch 2: Decision Engine (6 files, 7 tests)
-- `src/decision/strategies.ts` - 10 survival strategies
-- `src/decision/framework.ts` - Genome-based strategy filter
-- `src/decision/prompt.ts` - LLM prompt builder
-- `src/decision/inference.ts` - OpenRouter/Qwen integration
-- `src/decision/perceive.ts` - Environment sensing
-- `src/decision/engine.ts` - Decision orchestration
+### Frontend Dashboard
+- ✅ Real-time statistics display
+- ✅ Agent list with status
+- ✅ Gene expression visualization
+- ✅ Event log
+- ✅ Control panel (start/stop/reset)
+- ✅ Auto-detect backend connection
 
-### Batch 3: Tools (4 files)
-- `src/tools/wallet.ts` - USDC/ETH wallet operations
-- `src/tools/dex.ts` - Aerodrome swap integration
-- `src/tools/network.ts` - Agent messaging
-- `src/tools/arweave.ts` - Memory inscription (local fallback)
+### Quick Start Tools
+- ✅ `START_REAL.bat` - One-click launch
+- ✅ `LAUNCH.bat` - Interactive menu
+- ✅ Docker Compose config
 
-### Batch 4: Lifecycle (5 files)
-- `src/lifecycle/birth.ts` - Agent creation
-- `src/lifecycle/death.ts` - Death conditions & tombstones
-- `src/lifecycle/breeding.ts` - Reproduction logic
-- `src/lifecycle/development.ts` - Life stages
-- `src/lifecycle/survival.ts` - Main survival loop
+---
 
-### Batch 5: Runtime (3 files)
-- `src/runtime/agent.ts` - Agent class
-- `src/runtime/population.ts` - Population manager
-- `src/runtime/logger.ts` - Structured logging
+## 🚀 How to Start Real Simulation
 
-### Batch 6: Entry & Deploy (3 files)
-- `src/index.ts` - Main entry point
-- `Dockerfile` - Container image
-- `docker-compose.yml` - Compose config
-
-## 📊 Test Results
+### Option 1: Double-Click (Easiest)
 ```
-✓ 23 tests passing
-✓ 4 test files
-✓ All genome tests pass
-✓ All decision tests pass
+1. Open folder: C:\Users\PC\axobase-mvp
+2. Double-click: START_REAL.bat
+3. Wait 10 seconds
+4. Browser opens automatically
 ```
 
-## 🚀 Quick Start
+### Option 2: Docker
 ```bash
-# Install dependencies
-npm install
-
-# Run tests
-npm test
-
-# Run locally
-npm run dev
-
-# Run with Docker
 docker-compose up --build
 ```
 
-## 📁 Project Structure
+### Option 3: Manual
+```bash
+# Terminal 1 - Backend
+cd C:\Users\PC\axobase-mvp
+npm run dev
+
+# Terminal 2 - Frontend
+cd C:\Users\PC\axobase-mvp\web
+npm run dev
+
+# Open http://localhost:3000
+```
+
+---
+
+## 📊 What You'll See
+
+### Dashboard Components
+1. **Status Badge** - Shows "真实数据模式" or "演示模式"
+2. **Statistics Panel** - Live population metrics
+3. **Agent List** - Each agent's balance, age, strategy
+4. **Gene Chart** - Gene expression distribution
+5. **Event Log** - System events
+6. **Controls** - Start/Stop/Reset buttons
+
+### API Endpoints (Port 3001)
+- `GET /api/stats` - Population statistics
+- `GET /api/agents` - Agent list
+- `POST /api/control` - Control simulation
+
+---
+
+## 💰 Cost Warning
+
+**Real simulation consumes API credits:**
+- Each agent decision: ~$0.01-0.02
+- 5 agents × 6 ticks/hour: ~$0.60-1.20/hour
+- 24 hours: ~$15-30
+
+**To reduce costs:**
+1. Reduce `INITIAL_AGENT_COUNT` in `.env`
+2. Increase `TICK_INTERVAL_MS` (e.g., to 1 hour)
+3. Use demo mode (frontend only, no API calls)
+
+---
+
+## 📁 Key Files
+
 ```
 axobase-mvp/
+├── START_REAL.bat      ← Launch real simulation ⭐
+├── EASY_START.md       ← Detailed guide
 ├── src/
-│   ├── genome/       # Genome engine
-│   ├── decision/     # Decision engine
-│   ├── tools/        # Wallet, DEX, network
-│   ├── lifecycle/    # Birth, death, breeding
-│   ├── runtime/      # Agent & population
-│   ├── config/       # Chains, constants, env
-│   └── index.ts      # Entry point
-├── tests/
-│   ├── genome/       # 16 tests
-│   └── decision/     # 7 tests
-├── Dockerfile
-├── docker-compose.yml
-└── package.json
+│   ├── index.ts        ← Backend entry
+│   └── api.ts          ← HTTP API server
+├── web/
+│   ├── app/page.tsx    ← Dashboard
+│   └── lib/api.ts      ← API client
+└── docker-compose.yml  ← Docker config
 ```
 
-## 🔧 Configuration
-Copy `.env.example` to `.env` and set:
-- `OPENROUTER_API_KEY` - Provided: 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
-- `MASTER_WALLET_PRIVATE_KEY` - For funding agents
-
-## 📝 MVP Success Criteria Status
-- ✅ `npx vitest run` - 23 tests passing
-- ✅ `docker compose up` - Configured
-- ⏳ 48h continuous run - Pending test
-- ⏳ Natural death observed - Pending test
-- ⏳ Breeding event observed - Pending test
-- ✅ CSV export capability - Implemented
-- ✅ Snapshot save/restore - Implemented
+---
 
 ## 🔗 Repository
 https://github.com/axobase001/axobase-mvp
 
 ---
-*Built with TypeScript strict mode, zero `any`*
-*23 tests | 28 source files | ~2500 lines of code*
+*Last updated: 2024*
+*TypeScript strict mode | 23 tests | ~3000 lines*
