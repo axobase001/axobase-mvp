@@ -40,14 +40,32 @@ export interface Wallet {
   index: number;
 }
 
+// Mock private keys for MVP (no real funds, for simulation only)
+const MOCK_PRIVATE_KEYS = [
+  '0x1111111111111111111111111111111111111111111111111111111111111111',
+  '0x2222222222222222222222222222222222222222222222222222222222222222',
+  '0x3333333333333333333333333333333333333333333333333333333333333333',
+  '0x4444444444444444444444444444444444444444444444444444444444444444',
+  '0x5555555555555555555555555555555555555555555555555555555555555555',
+  '0x6666666666666666666666666666666666666666666666666666666666666666',
+  '0x7777777777777777777777777777777777777777777777777777777777777777',
+  '0x8888888888888888888888888888888888888888888888888888888888888888',
+  '0x9999999999999999999999999999999999999999999999999999999999999999',
+  '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+] as const;
+
 export const createHDWallet = (index: number, seed?: string): Wallet => {
-  const seedPhrase = seed || process.env.MASTER_WALLET_PRIVATE_KEY || '0x' + '1'.repeat(64);
-  const privateKey = `${seedPhrase.substring(0, 64 - index.toString().length)}${index}` as `0x${string}`;
-  const account = privateKeyToAccount(privateKey);
+  // Use configured key if available, otherwise use mock key
+  const privateKey = seed || process.env.MASTER_WALLET_PRIVATE_KEY || MOCK_PRIVATE_KEYS[index % MOCK_PRIVATE_KEYS.length];
+  
+  // Ensure proper hex format
+  const formattedKey = privateKey.startsWith('0x') ? privateKey : `0x${privateKey}`;
+  
+  const account = privateKeyToAccount(formattedKey as `0x${string}`);
   
   return {
     address: account.address,
-    privateKey: privateKey,
+    privateKey: formattedKey,
     index,
   };
 };
