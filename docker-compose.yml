@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  axobase:
+    build: .
+    container_name: axobase-mvp
+    environment:
+      - CHAIN=${CHAIN:-base-sepolia}
+      - BASE_RPC_URL=${BASE_RPC_URL:-https://sepolia.base.org}
+      - MASTER_WALLET_PRIVATE_KEY=${MASTER_WALLET_PRIVATE_KEY}
+      - INITIAL_AGENT_COUNT=${INITIAL_AGENT_COUNT:-5}
+      - INITIAL_USDC_PER_AGENT=${INITIAL_USDC_PER_AGENT:-10}
+      - TICK_INTERVAL_MS=${TICK_INTERVAL_MS:-600000}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - OPENROUTER_MODEL=${OPENROUTER_MODEL:-qwen/qwen-2.5-7b-instruct}
+      - ENABLE_ARWEAVE=${ENABLE_ARWEAVE:-false}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - SNAPSHOT_INTERVAL_MS=${SNAPSHOT_INTERVAL_MS:-3600000}
+    volumes:
+      - ./logs:/app/logs
+      - ./snapshots:/app/snapshots
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
