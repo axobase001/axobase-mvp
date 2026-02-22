@@ -8,8 +8,10 @@ import { AgentList } from '../components/AgentList';
 import { GeneChart } from '../components/GeneChart';
 import { ControlPanel } from '../components/ControlPanel';
 import { EventLog } from '../components/EventLog';
+import { EventsPanel } from '../components/EventsPanel';
+import { RecentEvents } from '../components/RecentEvents';
 
-// Mock data generator for demo mode
+// Mock data generators
 const generateMockStats = (): PopulationStats => ({
   timestamp: Date.now(),
   totalAgents: 5,
@@ -46,8 +48,8 @@ export default function Home() {
   const [events, setEvents] = useState<string[]>([]);
   const [useRealData, setUseRealData] = useState(false);
   const [backendConnected, setBackendConnected] = useState(false);
+  const [tickSpeed, setTickSpeed] = useState(10);
 
-  // Check backend connection on mount
   useEffect(() => {
     const checkBackend = async () => {
       const realStats = await fetchStats();
@@ -65,11 +67,9 @@ export default function Home() {
     checkBackend();
   }, []);
 
-  // Data polling
   useEffect(() => {
     const interval = setInterval(async () => {
       if (useRealData) {
-        // Try to fetch real data
         const realStats = await fetchStats();
         const realAgents = await fetchAgents();
         
@@ -78,23 +78,21 @@ export default function Home() {
           setBackendConnected(true);
         } else {
           setBackendConnected(false);
-          addEvent('⚠️ 后端连接断开');
         }
         
         if (realAgents) {
           setAgents(realAgents);
         }
       } else {
-        // Demo mode with animated data
         setStats(generateMockStats());
         if (agents.length === 0) {
           setAgents(generateMockAgents());
         }
       }
-    }, 2000);
+    }, tickSpeed * 1000);
 
     return () => clearInterval(interval);
-  }, [useRealData, agents.length]);
+  }, [useRealData, agents.length, tickSpeed]);
 
   const addEvent = (message: string) => {
     setEvents(prev => [`${new Date().toLocaleTimeString()} - ${message}`, ...prev].slice(0, 50));
@@ -151,7 +149,7 @@ export default function Home() {
               实时观察 AI Agent 在区块链经济中的进化过程
             </p>
           </div>
-          <div className="text-right">
+          <div className="text-right space-y-2">
             <div className={`inline-flex items-center px-4 py-2 rounded-lg ${
               backendConnected 
                 ? 'bg-green-500/20 text-green-400 border border-green-500/50' 
@@ -159,6 +157,15 @@ export default function Home() {
             }`}>
               <div className={`w-2 h-2 rounded-full mr-2 ${backendConnected ? 'bg-green-400 animate-pulse' : 'bg-yellow-400'}`} />
               {backendConnected ? '真实数据模式' : '演示模式'}
+            </div>
+            <div className="text-sm text-gray-500">
+              Tick 间隔: {tickSpeed}s 
+              <button 
+                onClick={() => setTickSpeed(s => s === 10 ? 2 : 10)}
+                className="ml-2 text-axo-accent hover:underline"
+              >
+                {tickSpeed === 10 ? '(加速)' : '(减速)'}
+              </button>
             </div>
           </div>
         </div>
@@ -199,13 +206,19 @@ export default function Home() {
       {stats && <StatsPanel stats={stats} />}
 
       {/* Main Content */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
-        {/* Agent List */}
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mt-6">
+        {/* Left: Agent List */}
         <div className="lg:col-span-2">
           <AgentList agents={agents} />
         </div>
 
-        {/* Sidebar */}
+        {/* Middle: Events */}
+        <div className="space-y-6">
+          <EventsPanel />
+          <RecentEvents />
+        </div>
+
+        {/* Right: Gene & Log */}
         <div className="space-y-6">
           <GeneChart />
           <EventLog events={events} />
