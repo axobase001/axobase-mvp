@@ -25,7 +25,7 @@ export async function fetchStats(): Promise<PopulationStats | null> {
   }
 }
 
-export async function fetchAgents(): Promise<any[] | null> {
+export async function fetchAgents(): Promise<{ maternalHealth: any; agents: any[] } | null> {
   try {
     const response = await fetch(`${API_URL}/api/agents`, {
       method: 'GET',
@@ -36,7 +36,9 @@ export async function fetchAgents(): Promise<any[] | null> {
       return null;
     }
     
-    return await response.json();
+    const data = await response.json();
+    // API now returns { maternalHealth, agents }
+    return data;
   } catch {
     return null;
   }

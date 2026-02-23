@@ -11,6 +11,8 @@ export interface PerceptionResult {
     genomeExpression: ExpressionResult;
     age: number;
     generation: number;
+    callNumber?: number;        // Which LLM call this is within the tick
+    totalCallsExpected?: number; // Total LLM calls expected this tick
   };
   balance: {
     usdc: number;
@@ -47,13 +49,15 @@ interface PerceptionConfig {
   tick: number;
   age: number;
   generation: number;
+  callNumber?: number;        // Which LLM call this is within the tick
+  totalCallsExpected?: number; // Total LLM calls expected this tick
 }
 
 const MOCK_ETH_PRICE = 3000;
 const MOCK_GAS_PRICE = 0.1;
 
 export const perceive = async (config: PerceptionConfig): Promise<PerceptionResult> => {
-  const { agentId, genomeExpression, tick, age, generation } = config;
+  const { agentId, genomeExpression, tick, age, generation, callNumber, totalCallsExpected } = config;
   
   // DECISION: Using mock values for MVP - real implementation would query chain
   const usdcBalance = await getUSDCBalance(agentId);
@@ -68,6 +72,8 @@ export const perceive = async (config: PerceptionConfig): Promise<PerceptionResu
       genomeExpression,
       age,
       generation,
+      callNumber,
+      totalCallsExpected,
     },
     balance: {
       usdc: usdcBalance,

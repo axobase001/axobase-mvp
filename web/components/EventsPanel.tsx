@@ -16,15 +16,15 @@ export function EventsPanel() {
   useEffect(() => {
     const allEvents = [
       // DeFi opportunities
-      { id: '1', name: 'DEX套利机会', description: 'Uniswap/Aerodrome价差5%', type: 'defi', emoji: '📈' },
-      { id: '2', name: 'Aave存款收益', description: 'USDC活期APY 5.2%', type: 'defi', emoji: '🏦' },
-      { id: '3', name: 'ETH/USDC LP', description: '提供流动性APY 15%', type: 'defi', emoji: '💧' },
-      { id: '4', name: '高收益农场', description: '新兴协议APY 80%', type: 'defi', emoji: '🌾' },
-      // Human tasks
-      { id: '5', name: '撰写博客文章', description: '$20-50 内容创作', type: 'task', emoji: '✍️' },
-      { id: '6', name: '数据清洗任务', description: '$10-80 数据分析', type: 'task', emoji: '📊' },
-      { id: '7', name: '社区管理', description: '$15-100 Discord管理', type: 'task', emoji: '💬' },
-      { id: '8', name: '调试智能合约', description: '$50-500 编程任务', type: 'task', emoji: '💻' },
+      { id: '1', name: 'DEX套利机会', description: '价差套利，收益≤5%余额', type: 'defi', emoji: '📈' },
+      { id: '2', name: 'Aave存款收益', description: 'USDC活期，稳定低收益', type: 'defi', emoji: '🏦' },
+      { id: '3', name: 'ETH/USDC LP', description: '流动性挖矿，有锁仓期', type: 'defi', emoji: '💧' },
+      { id: '4', name: '高收益农场', description: '高风险高回报，可能归零', type: 'defi', emoji: '🌾' },
+      // Human tasks - REALISTIC micro-task rates (max 5% of 10U = $0.5)
+      { id: '5', name: '数据标注', description: '$0.1-0.3 微任务', type: 'task', emoji: '🏷️' },
+      { id: '6', name: '内容点赞', description: '$0.05-0.1 社交任务', type: 'task', emoji: '👍' },
+      { id: '7', name: 'Discord活跃', description: '$0.3-1 社区互动', type: 'task', emoji: '💬' },
+      { id: '8', name: '问卷调查', description: '$0.5-1.5 偶尔出现', type: 'task', emoji: '📋' },
       // Risks
       { id: '9', name: '市场回调', description: '大盘下跌10%', type: 'risk', emoji: '📉' },
       { id: '10', name: '无常损失', description: 'LP头寸价值下降', type: 'risk', emoji: '⚠️' },

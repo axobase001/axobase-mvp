@@ -43,7 +43,7 @@ const generateMockAgents = () => [
 
 export default function Home() {
   const [stats, setStats] = useState<PopulationStats | null>(null);
-  const [agents, setAgents] = useState<any[]>([]);
+  const [agents, setAgents] = useState<{ maternalHealth?: any; agents: any[] }>({ agents: [] });
   const [isRunning, setIsRunning] = useState(false);
   const [events, setEvents] = useState<string[]>([]);
   const [useRealData, setUseRealData] = useState(false);
@@ -60,7 +60,7 @@ export default function Home() {
         addEvent('✅ 已连接到真实后端');
       } else {
         setStats(generateMockStats());
-        setAgents(generateMockAgents());
+        setAgents({ agents: generateMockAgents() });
         addEvent('ℹ️ 使用演示模式（后端未启动）');
       }
     };
@@ -85,8 +85,8 @@ export default function Home() {
         }
       } else {
         setStats(generateMockStats());
-        if (agents.length === 0) {
-          setAgents(generateMockAgents());
+        if (agents.agents.length === 0) {
+          setAgents({ agents: generateMockAgents() });
         }
       }
     }, tickSpeed * 1000);
@@ -132,7 +132,7 @@ export default function Home() {
     }
     setIsRunning(false);
     setStats(generateMockStats());
-    setAgents(generateMockAgents());
+    setAgents({ agents: generateMockAgents() });
     addEvent('🔄 已重置');
   };
 

@@ -1,24 +1,28 @@
 /**
  * LLM Inference
- * Calls OpenRouter for agent decision making
- * Supports: Qwen (cheap), Kimi (better Chinese), DeepSeek (good reasoning)
+ * Supports: OpenRouter (multi-model), Kimi Official API, Local Ollama
+ * 
+ * Integrated with Umbilical Monitor for maternal health tracking
  */
 
-interface InferenceOptions {
-  model?: 'local' | 'api';
+import { umbilicalMonitor } from '../monitoring/umbilical-monitor.js';
+
+export interface InferenceOptions {
+  model?: 'local' | 'api' | 'kimi';
   maxTokens?: number;
   temperature?: number;
 }
 
-interface InferenceResult {
+export interface InferenceResult {
   text: string;
   model: string;
   costUSD: number;
 }
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
+const KIMI_URL = 'https://api.moonshot.cn/v1/chat/completions';
 
-// Model pricing per million tokens (from cost analysis)
+// Model pricing per million tokens
 const MODEL_PRICING: Record<string, { input: number; output: number; name: string }> = {
   'qwen/qwen-2.5-7b-instruct': { input: 0.05, output: 0.05, name: 'Qwen 2.5 7B' },
   'kimi/kimi-k2-5': { input: 0.50, output: 0.50, name: 'Kimi K2.5' },
@@ -26,6 +30,17 @@ const MODEL_PRICING: Record<string, { input: number; output: number; name: strin
   'deepseek/deepseek-chat': { input: 0.50, output: 0.50, name: 'DeepSeek V3' },
   'deepseek/deepseek-r1': { input: 0.55, output: 2.19, name: 'DeepSeek R1' },
   'anthropic/claude-3.5-sonnet': { input: 3.0, output: 15.0, name: 'Claude 3.5 Sonnet' },
+};
+
+// Kimi official pricing (RMB per 1M tokens) - ¥0.5 per 1M tokens
+const KIMI_PRICING = { input: 0.5, output: 0.5, name: 'Kimi K2.5 (Official)' };
+
+// USD to RMB exchange rate (approximate)
+const USD_TO_RMB = 7.2;
+
+// Get configured provider
+const getProvider = (): 'openrouter' | 'kimi' => {
+  return (process.env.LLM_PROVIDER as 'openrouter' | 'kimi') || 'openrouter';
 };
 
 // Get configured model from env
@@ -45,6 +60,18 @@ const estimateCost = (prompt: string, maxTokens: number, model: string): number 
   return inputCost + outputCost;
 };
 
+// Estimate cost for Kimi official API (returns USD equivalent)
+const estimateKimiCost = (prompt: string, maxTokens: number): number => {
+  const promptTokens = prompt.length / 4;
+  const outputTokens = maxTokens;
+  
+  // Price in RMB, convert to USD
+  const inputCostRMB = (promptTokens / 1000000) * KIMI_PRICING.input;
+  const outputCostRMB = (outputTokens / 1000000) * KIMI_PRICING.output;
+  
+  return (inputCostRMB + outputCostRMB) / USD_TO_RMB;
+};
+
 // Get model name for display
 const getModelName = (model: string): string => {
   return MODEL_PRICING[model]?.name || model;
@@ -58,6 +85,12 @@ export const callLLM = async (
   
   if (model === 'local') {
     return callLocalOllama(prompt, maxTokens, temperature);
+  }
+  
+  // Check if using Kimi official API
+  const provider = getProvider();
+  if (provider === 'kimi') {
+    return callKimiOfficial(prompt, maxTokens, temperature);
   }
   
   return callOpenRouter(prompt, maxTokens, temperature);
@@ -75,6 +108,7 @@ const callOpenRouter = async (
   }
   
   const configuredModel = getConfiguredModel();
+  const startTime = Date.now();
   
   const response = await fetch(OPENROUTER_URL, {
     method: 'POST',
@@ -94,19 +128,75 @@ const callOpenRouter = async (
     }),
   });
   
+  const latency = Date.now() - startTime;
+  
   if (!response.ok) {
     const error = await response.text();
     throw new Error(`OpenRouter error: ${response.status} - ${error}`);
   }
   
-  const data = await response.json();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data = await response.json() as any;
   const text = data.choices?.[0]?.message?.content || '';
   const actualModel = data.model || configuredModel;
+  
+  // Record to umbilical monitor (estimate 1600 tokens per call)
+  umbilicalMonitor.recordApiCall(latency, 1600);
   
   return {
     text: text.trim(),
     model: getModelName(actualModel),
     costUSD: estimateCost(prompt, maxTokens, actualModel),
+  };
+};
+
+const callKimiOfficial = async (
+  prompt: string,
+  maxTokens: number,
+  temperature: number
+): Promise<InferenceResult> => {
+  const apiKey = process.env.KIMI_API_KEY;
+  
+  if (!apiKey) {
+    throw new Error('KIMI_API_KEY not configured');
+  }
+  
+  const startTime = Date.now();
+  
+  const response = await fetch(KIMI_URL, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'kimi-k2-5',
+      messages: [
+        { role: 'user', content: prompt }
+      ],
+      max_tokens: maxTokens,
+      temperature,
+    }),
+  });
+  
+  const latency = Date.now() - startTime;
+  
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Kimi API error: ${response.status} - ${error}`);
+  }
+  
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data = await response.json() as any;
+  const text = data.choices?.[0]?.message?.content || '';
+  
+  // Record to umbilical monitor
+  umbilicalMonitor.recordApiCall(latency, 1600);
+  
+  return {
+    text: text.trim(),
+    model: KIMI_PRICING.name,
+    costUSD: estimateKimiCost(prompt, maxTokens),
   };
 };
 
@@ -135,7 +225,8 @@ const callLocalOllama = async (
     throw new Error(`Ollama error: ${response.status}`);
   }
   
-  const data = await response.json();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data = await response.json() as any;
   
   return {
     text: (data.response || '').trim(),
@@ -146,16 +237,31 @@ const callLocalOllama = async (
 
 // Get cost estimate for a single inference call
 export const getInferenceCostEstimate = (model?: string): number => {
+  const provider = getProvider();
+  if (provider === 'kimi') {
+    // Typical call: ~1,600 tokens (1,300 input + 300 output)
+    return estimateKimiCost('a'.repeat(5200), 300);
+  }
+  
   const m = model || getConfiguredModel();
-  // Typical call: ~1,600 tokens (1,300 input + 300 output)
-  return estimateCost('a'.repeat(5200), 300, m); // 5200 chars ≈ 1300 tokens
+  return estimateCost('a'.repeat(5200), 300, m);
 };
 
 // Get pricing info for display
 export const getModelPricingInfo = (): Array<{ model: string; name: string; costPerCall: string }> => {
-  return Object.entries(MODEL_PRICING).map(([model, pricing]) => ({
+  const openRouterModels = Object.entries(MODEL_PRICING).map(([model, pricing]) => ({
     model,
     name: pricing.name,
     costPerCall: `~$${((1600 / 1000000) * (pricing.input + pricing.output * 0.2)).toFixed(4)}`,
   }));
+  
+  // Add Kimi official
+  const kimiCost = estimateKimiCost('a'.repeat(5200), 300);
+  openRouterModels.push({
+    model: 'kimi-official',
+    name: 'Kimi K2.5 (Official API)',
+    costPerCall: `~$${kimiCost.toFixed(4)} (~¥${(kimiCost * USD_TO_RMB).toFixed(4)})`,
+  });
+  
+  return openRouterModels;
 };

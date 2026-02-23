@@ -9,7 +9,8 @@ import { AgentConfig } from '../lifecycle/birth.js';
 import { SurvivalState, initializeSurvivalState, runSurvivalTick } from '../lifecycle/survival.js';
 import { Tombstone } from '../lifecycle/death.js';
 import { DevelopmentStage } from '../lifecycle/development.js';
-import { createHDWallet } from '../tools/wallet.js';
+import { createHDWallet, setSimulatedBalance } from '../tools/wallet.js';
+import { assignAgentName } from '../monitoring/umbilical-monitor.js';
 
 export interface AgentSnapshot {
   id: string;
@@ -35,9 +36,22 @@ export class Agent {
     this.parentIds = config.parentIds;
     this.survivalState = initializeSurvivalState();
     this.survivalState.balanceUSDC = config.initialBalance;
+    
+    // Set simulated balance for MVP (real blockchain not available)
+    setSimulatedBalance(this.id, config.initialBalance);
+    
     this.decisionEngine = new DecisionEngine({
       agentId: this.id,
       llmProvider: 'api',
+    });
+    
+    // Assign a name based on genome traits
+    const expression = expressGenome(this.genome);
+    assignAgentName(this.id, {
+      analyticalAbility: expression.analyticalAbility,
+      creativeAbility: expression.creativeAbility,
+      socialVsTechnical: expression.socialVsTechnical,
+      riskAppetite: expression.riskAppetite,
     });
   }
 

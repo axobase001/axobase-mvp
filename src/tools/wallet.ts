@@ -70,7 +70,25 @@ export const createHDWallet = (index: number, seed?: string): Wallet => {
   };
 };
 
+// In-memory balance store for simulation mode (when real blockchain is not available)
+const simulatedBalances = new Map<string, number>();
+
+export const setSimulatedBalance = (address: string, balance: number): void => {
+  simulatedBalances.set(address.toLowerCase(), balance);
+};
+
+export const getSimulatedBalance = (address: string): number | undefined => {
+  return simulatedBalances.get(address.toLowerCase());
+};
+
 export const getUSDCBalance = async (address: string): Promise<number> => {
+  // First check if we have a simulated balance (for MVP simulation mode)
+  const simulatedBalance = getSimulatedBalance(address);
+  if (simulatedBalance !== undefined) {
+    return simulatedBalance;
+  }
+  
+  // Otherwise try to read from real blockchain
   const chain = getActiveChain();
   const usdcAddress = getUSDCAddress() as `0x${string}`;
   
@@ -89,6 +107,7 @@ export const getUSDCBalance = async (address: string): Promise<number> => {
     
     return parseFloat(formatUnits(balance, 6));
   } catch {
+    // If blockchain call fails and no simulated balance, return 0
     return 0;
   }
 };
