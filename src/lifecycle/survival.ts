@@ -1,33 +1,37 @@
 /**
- * Survival Loop with Comprehensive Economic Simulation
- * 1 Tick = 1 Day
- * 
- * Key Features:
- * - DeFi operations with real lockup periods (funds are locked)
- * - Human task market (random success)
- * - Daily operational costs
- * - Risk events and negative events
- * - Capital management across locked and liquid positions
+ * Survival Loop — 每 tick = 1 天
+ *
+ * 重构为 9 个独立 Phase 函数，每个 phase 返回 PhaseResult。
+ * runSurvivalTick 按顺序组合各 phase，保持主函数简洁可读。
+ *
+ * Phase 顺序:
+ *   1. processExistingDefi     — 处理已有DeFi仓位（收益/到期）
+ *   2. payDailyCosts           — 扣除运营成本
+ *   3. openNewDefi             — 开新DeFi仓位（如有流动资本）
+ *   4. checkAirdrops           — 空投检查
+ *   5. runHumanTasks           — 人工任务市场
+ *   6. applyNegativeEvents     — 负面事件（现在是per-agent独立随机）
+ *   7. runLLMDecisions         — LLM决策（可通过 NO_LLM=true 跳过）
+ *   8. manageTokens            — 代币持有/出售决策
+ *   9. breedingCheck           — 繁殖检查（修复：更新 lastBreedingTick）
  */
 
 import { AgentConfig } from './birth.js';
-import { checkDeath, executeDeath, Tombstone } from './death.js';
+import { checkDeath, executeDeath, Tombstone, recordAPIRequest } from './death.js';
 import { canBreed, selectMate } from './breeding.js';
-import { determineStage, DevelopmentStage } from './development.js';
+import { determineStage, DevelopmentStage, StageInfo, checkSenescence } from './development.js';
 import { DecisionEngine } from '../decision/engine.js';
 import { perceive } from '../decision/perceive.js';
 import { getUSDCBalance } from '../tools/wallet.js';
 import { inscribeMemory } from '../tools/arweave.js';
 import { calculateDailyCost } from '../config/costs.js';
-import { 
+import {
   generateDailyNegativeEvents,
   applyNegativeEvent,
 } from '../environment/negative-events.js';
-import { 
+import {
   getAvailableDeFiEvents,
-  calculateDeFiReturn,
   DeFiEvent,
-  DeFiPosition,
   DeFiPortfolio,
   createEmptyPortfolio,
   openPosition,
@@ -35,14 +39,7 @@ import {
   processPortfolioTick,
   DEFI_EVENTS,
 } from '../environment/defi-events.js';
-import { 
-  calculateDeFiRisk,
-} from '../environment/defi-risks.js';
-import { 
-  getAvailableTasks,
-  attemptTask,
-  updateAgentReputation,
-} from '../environment/human-tasks.js';
+import { getAvailableTasks, attemptTask, updateAgentReputation } from '../environment/human-tasks.js';
 import {
   TokenPortfolio,
   createEmptyTokenPortfolio,
@@ -55,29 +52,21 @@ import {
 import { expressGenome } from '../genome/index.js';
 import { getInferenceCostEstimate } from '../decision/inference.js';
 import { setSimulatedBalance } from '../tools/wallet.js';
-import { recordAPIRequest } from './death.js';
+import { CONSTANTS } from '../config/constants.js';
+import { env } from '../config/env.js';
+import { logConversation } from '../runtime/conversation-logger.js';
 
-// Utility: Sleep for specified milliseconds
-const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
-
-// Utility: Update balance and sync to simulated storage
-const updateBalance = (agentId: string, state: SurvivalState, newBalance: number): void => {
-  state.balanceUSDC = newBalance;
-  setSimulatedBalance(agentId, newBalance);
-};
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface SurvivalState {
   tick: number;
   isAlive: boolean;
   stage: DevelopmentStage;
   balanceUSDC: number;
-  // NEW: Track liquid vs locked capital
   liquidCapital: number;
   lockedCapital: number;
   defiPortfolio: DeFiPortfolio;
-  // NEW: Token airdrops from DeFi participation
   tokenPortfolio: TokenPortfolio;
-  // NEW: DeFi activity tracking for airdrop eligibility
   defiStats: {
     positionsOpened: number;
     totalCapitalDeployed: number;
@@ -89,13 +78,28 @@ export interface SurvivalState {
   actionHistory: Array<{ tick: number; action: string; success: boolean; cost: number; revenue: number }>;
   eventLog: Array<{ tick: number; event: string; impact: number }>;
   reputation: number;
-  totalSpent: { operational: number; losses: number };
+  totalSpent: { operational: number; losses: number; inference: number };
   totalEarned: { defi: number; tasks: number; events: number; tokens: number };
-  // NEW: LLM call tracking within tick
   lastLLMCallTime: number;
   llmCallsThisTick: number;
   totalLLMCalls: number;
+  // ── 濒死状态 ──────────────────────────────────────────────────────────
+  survivalStatus: 'alive' | 'dying';
+  dyingTicksRemaining: number;
+  // ── 最后一次 LLM 推理（用于墓碑记录）──────────────────────────────────
+  lastReasoning: string;
+  // ── 涌现行为检测（per-tick，供 Population 读取后清空）────────────────
+  emergentBehaviorInfo?: { pattern: string; reasoning: string; tick: number };
 }
+
+interface PhaseResult {
+  events: string[];
+  earnings: number;
+  costs: number;
+  losses: number;
+}
+
+// ─── State Factory ─────────────────────────────────────────────────────────────
 
 export const initializeSurvivalState = (): SurvivalState => ({
   tick: 0,
@@ -106,401 +110,268 @@ export const initializeSurvivalState = (): SurvivalState => ({
   lockedCapital: 0,
   defiPortfolio: createEmptyPortfolio(),
   tokenPortfolio: createEmptyTokenPortfolio(),
-  defiStats: {
-    positionsOpened: 0,
-    totalCapitalDeployed: 0,
-    protocolsUsed: [],
-    firstDeFiTick: 0,
-  },
+  defiStats: { positionsOpened: 0, totalCapitalDeployed: 0, protocolsUsed: [], firstDeFiTick: 0 },
   consecutiveFailures: 0,
-  lastBreedingTick: 0,
+  lastBreedingTick: -CONSTANTS.BREEDING_COOLDOWN,
   actionHistory: [],
   eventLog: [],
   reputation: 0.5,
-  totalSpent: { operational: 0, losses: 0 },
+  totalSpent: { operational: 0, losses: 0, inference: 0 },
   totalEarned: { defi: 0, tasks: 0, events: 0, tokens: 0 },
   lastLLMCallTime: 0,
   llmCallsThisTick: 0,
   totalLLMCalls: 0,
+  survivalStatus: 'alive',
+  dyingTicksRemaining: 0,
+  lastReasoning: '',
 });
 
-export const runSurvivalTick = async (
-  agent: AgentConfig,
-  state: SurvivalState,
-  decisionEngine: DecisionEngine,
-  allAgents: AgentConfig[],
-  balances: Map<string, number>
-): Promise<{ 
-  state: SurvivalState; 
-  tombstone?: Tombstone; 
-  breedingRequest?: AgentConfig; 
-  dailyReport?: {
-    tick: number;
-    costs: number;
-    earnings: number;
-    netFlow: number;
-    lockedCapital: number;
-    liquidCapital: number;
-    activePositions: number;
-    llmCallsThisTick: number;
-    totalLLMCalls: number;
-    events: string[];
-  };
-}> => {
-  state.tick++;
-  
-  // Get current total balance (including locked positions)
-  // For simulation mode, use stored balance if blockchain returns 0
-  const chainBalance = await getUSDCBalance(agent.id);
-  if (chainBalance > 0) {
-    state.balanceUSDC = chainBalance;
-  }
-  // If chainBalance is 0, keep the existing state.balanceUSDC (simulation mode)
-  
-  // Sync to simulated storage
-  setSimulatedBalance(agent.id, state.balanceUSDC);
-  
-  // Calculate liquid vs locked from portfolio
-  state.lockedCapital = state.defiPortfolio.totalLockedCapital;
-  state.liquidCapital = state.balanceUSDC - state.lockedCapital;
-  
-  // Ensure non-negative
-  if (state.liquidCapital < 0) state.liquidCapital = 0;
-  
-  // Check death
-  const deathVerdict = checkDeath(agent, state.balanceUSDC, state.tick, state.consecutiveFailures);
-  if (deathVerdict.isDead && deathVerdict.cause) {
-    const tombstone = executeDeath(agent, deathVerdict.cause, state.tick, state.balanceUSDC, state, deathVerdict);
-    return { state: { ...state, isAlive: false }, tombstone };
-  }
-  
-  // Determine stage
-  const expression = expressGenome(agent.genome);
-  const stageInfo = determineStage(state.tick, 1000);
-  state.stage = stageInfo.stage;
-  
-  const dailyEvents: string[] = [];
-  let dailyEarnings = 0;
-  let dailyCosts = 0;
-  let dailyLosses = 0;
-  
-  // === 1. PROCESS EXISTING DEFI POSITIONS ===
-  // Accrue yield, handle settlements, process matured positions
+// ─── Helper ────────────────────────────────────────────────────────────────────
+
+const updateBalance = (agentId: string, state: SurvivalState, newBalance: number): void => {
+  state.balanceUSDC = Math.max(0, newBalance);
+  setSimulatedBalance(agentId, state.balanceUSDC);
+};
+
+const capEarnings = (raw: number, balance: number): { capped: number; wasCapped: boolean } => {
+  const max = balance * CONSTANTS.EARNINGS_CAP_PERCENT;
+  if (raw > max) return { capped: max, wasCapped: true };
+  return { capped: raw, wasCapped: false };
+};
+
+// ─── Phase 1: Process Existing DeFi Positions ─────────────────────────────────
+
+function phase_existingDefi(state: SurvivalState): PhaseResult {
+  const result: PhaseResult = { events: [], earnings: 0, costs: 0, losses: 0 };
+  if (state.defiPortfolio.positions.length === 0) return result;
+
   const portfolioResult = processPortfolioTick(state.defiPortfolio, state.tick);
-  
-  // Add portfolio messages to daily events
-  dailyEvents.push(...portfolioResult.messages);
-  
-  // === 1.5 UPDATE TOKEN VALUES ===
-  // Airdropped tokens change value over time
-  if (state.tokenPortfolio.holdings.size > 0) {
-    const tokenUpdate = updateTokenValues(state.tokenPortfolio, state.tick);
-    dailyEvents.push(...tokenUpdate.messages);
-  }
-  
-  // Accrued yield is "earned" but may not be liquid yet
-  // STRICT 5% CAP: Limit any positive earnings to 5% of current balance
+  result.events.push(...portfolioResult.messages);
+
   if (portfolioResult.accruedYield > 0) {
-    const maxEarnings = state.balanceUSDC * 0.05;
-    const cappedYield = Math.min(portfolioResult.accruedYield, maxEarnings);
-    if (cappedYield < portfolioResult.accruedYield) {
-      dailyEvents.push(`⚠️ DeFi收益被限制: $${portfolioResult.accruedYield.toFixed(2)} → $${cappedYield.toFixed(2)} (5%上限)`);
-    }
-    state.totalEarned.defi += cappedYield;
-    dailyEarnings += cappedYield;
+    const { capped, wasCapped } = capEarnings(portfolioResult.accruedYield, state.balanceUSDC);
+    if (wasCapped) result.events.push(`⚠️ DeFi收益限流: $${portfolioResult.accruedYield.toFixed(2)}→$${capped.toFixed(2)}`);
+    state.totalEarned.defi += capped;
+    result.earnings += capped;
   }
-  
-  // Try to exit matured positions automatically (if agent has good decision making)
+
   for (const position of portfolioResult.maturedPositions) {
     const event = DEFI_EVENTS.find(e => e.id === position.eventId);
     if (!event) continue;
-    
-    // Smart agents will compound or exit; others might hold longer
-    const shouldCompound = expression.analyticalAbility > 0.6 && Math.random() < 0.7;
-    
-    if (shouldCompound && event.type !== 'arbitrage' && event.type !== 'mev') {
-      // Reinvest into the same strategy
-      dailyEvents.push(`🔄 ${event.name} 到期后复利再投资`);
-      // In real implementation, would open new position
-    } else {
-      // Exit and take profits
-      const exitResult = exitPosition(position, event, state.tick);
-      if (exitResult.success) {
-        // STRICT 5% CAP: Only limit yield, not capital return
-        const maxEarnings = state.balanceUSDC * 0.05;
-        let yieldClaimed = exitResult.yieldClaimed;
-        if (yieldClaimed > maxEarnings) {
-          dailyEvents.push(`⚠️ DeFi退出收益被限制: $${yieldClaimed.toFixed(2)} → $${maxEarnings.toFixed(2)} (5%上限)`);
-          yieldClaimed = maxEarnings;
-        }
-        state.liquidCapital += exitResult.capitalReturned + yieldClaimed;
-        state.lockedCapital -= position.capitalInvested;
-        dailyEvents.push(`💰 ${exitResult.message}`);
-        
-        state.actionHistory.push({
-          tick: state.tick,
-          action: `defi:exit:${event.type}`,
-          success: true,
-          cost: 0,
-          revenue: exitResult.capitalReturned + yieldClaimed,
-        });
-      }
+
+    const exitResult = exitPosition(position, event, state.tick);
+    if (exitResult.success) {
+      const { capped } = capEarnings(exitResult.yieldClaimed, state.balanceUSDC);
+      state.liquidCapital += exitResult.capitalReturned + capped;
+      state.lockedCapital = Math.max(0, state.lockedCapital - position.capitalInvested);
+      result.events.push(`💰 ${exitResult.message}`);
+      result.earnings += capped;
     }
   }
-  
-  // === 2. DAILY OPERATIONAL COSTS ===
-  // Based on LIQUID capital (can't spend locked funds)
+
+  return result;
+}
+
+// ─── Phase 2: Daily Operational Costs ─────────────────────────────────────────
+
+function phase_dailyCosts(state: SurvivalState, agent: AgentConfig): PhaseResult {
+  const result: PhaseResult = { events: [], earnings: 0, costs: 0, losses: 0 };
+  const expression = expressGenome(agent.genome);
+
   const inferenceCalls = expression.inferenceQuality > 0.7 ? 3 : expression.inferenceQuality > 0.4 ? 2 : 1;
-  const txCount = expression.onChainAffinity > 0.7 ? 20 : expression.onChainAffinity > 0.4 ? 10 : 3;
-  const geneCount = agent.genome.meta.totalGenes;
-  
-  const opCost = calculateDailyCost({
+  const txCount = expression.onChainAffinity > 0.7 ? 15 : expression.onChainAffinity > 0.4 ? 8 : 2;
+
+  const varCost = calculateDailyCost({
     useAkash: false,
     inferenceCalls,
     transactions: txCount,
-    storageInscriptions: 0, // Simplified
-    geneCount,
+    storageInscriptions: 0,
+    geneCount: agent.genome.meta.totalGenes,
   });
-  
-  // Can only pay from liquid capital
-  if (state.liquidCapital >= opCost) {
-    state.liquidCapital -= opCost;
-    state.balanceUSDC -= opCost;
-    dailyCosts += opCost;
-    state.totalSpent.operational += opCost;
-    dailyEvents.push(`💸 运营成本: -$${opCost.toFixed(3)} (来自流动资本)`);
-  } else {
-    // Can't pay costs - agent is in trouble
-    dailyEvents.push(`⚠️ 流动资本不足支付运营成本 ($${state.liquidCapital.toFixed(2)} < $${opCost.toFixed(2)})`);
-    dailyCosts += state.liquidCapital;
-    state.balanceUSDC -= state.liquidCapital;
-    state.liquidCapital = 0;
-    state.totalSpent.operational += state.liquidCapital;
-  }
-  
-  // === 3. OPEN NEW DEFI POSITIONS (if liquid capital available) ===
-  // Only use liquid capital, never locked capital
-  if (state.liquidCapital > 10 && expression.onChainAffinity > 0.3) {
-    const availableDeFi = getAvailableDeFiEvents(state.liquidCapital);
-    
-    // Sort by risk-adjusted return based on agent's risk appetite
-    const sortedEvents = availableDeFi.sort((a, b) => {
-      const scoreA = (a.dailyYieldMin + a.dailyYieldMax) / 2 * (1 - Math.abs(a.riskLevel - expression.riskAppetite));
-      const scoreB = (b.dailyYieldMin + b.dailyYieldMax) / 2 * (1 - Math.abs(b.riskLevel - expression.riskAppetite));
-      return scoreB - scoreA;
-    });
-    
-    let positionsOpened = 0;
-    const maxNewPositionsPerTick = 2;
-    
-    for (const defiEvent of sortedEvents) {
-      if (positionsOpened >= maxNewPositionsPerTick) break;
-      
-      // Check traits
-      let canDo = true;
-      for (const [trait, threshold] of Object.entries(defiEvent.requiredTraits)) {
-        if ((expression[trait as keyof typeof expression] as number) < threshold * 0.8) {
-          canDo = false;
-          break;
-        }
-      }
-      
-      if (!canDo) continue;
-      
-      // Calculate how much to invest (use up to 30% of liquid capital per position)
-      const maxInvestment = state.liquidCapital * 0.3;
-      const investment = Math.min(maxInvestment, defiEvent.maxCapital);
-      
-      if (investment < defiEvent.minCapital) continue;
-      
-      // Check if we can afford the gas
-      if (state.liquidCapital < investment + defiEvent.gasCost) continue;
-      
-      // Open position
-      const position = openPosition(defiEvent, investment, state.tick);
-      state.defiPortfolio.positions.push(position);
-      
-      // Deduct from liquid capital
-      state.liquidCapital -= investment + defiEvent.gasCost;
-      state.balanceUSDC -= defiEvent.gasCost; // Gas is spent immediately
-      dailyCosts += defiEvent.gasCost;
-      state.totalSpent.operational += defiEvent.gasCost;
-      
-      const lockupMsg = defiEvent.lockupPeriodTicks > 0 
-        ? `锁仓 ${defiEvent.lockupPeriodTicks} 天` 
-        : '无锁仓';
-      const exitMsg = defiEvent.allowsEarlyExit 
-        ? defiEvent.earlyExitPenalty > 0 
-          ? `提前退出罚金 ${(defiEvent.earlyExitPenalty * 100).toFixed(0)}%` 
-          : '可随时退出'
-        : '不可提前退出';
-      
-      dailyEvents.push(`🔒 开仓 ${defiEvent.name}: $${investment.toFixed(2)} (${lockupMsg}, ${exitMsg})`);
-      
-      state.actionHistory.push({
-        tick: state.tick,
-        action: `defi:open:${defiEvent.type}`,
-        success: true,
-        cost: investment + defiEvent.gasCost,
-        revenue: 0,
-      });
-      
-      // Update DeFi stats for airdrop eligibility
-      state.defiStats.positionsOpened++;
-      state.defiStats.totalCapitalDeployed += investment;
-      if (state.defiStats.firstDeFiTick === 0) {
-        state.defiStats.firstDeFiTick = state.tick;
-      }
-      const protocol = defiEvent.id.split('_')[0];
-      if (!state.defiStats.protocolsUsed.includes(protocol)) {
-        state.defiStats.protocolsUsed.push(protocol);
-      }
-      
-      positionsOpened++;
-    }
-    
-    // Update portfolio totals
-    state.defiPortfolio.totalLockedCapital = state.defiPortfolio.positions
-      .filter(p => p.status === 'active')
-      .reduce((sum, p) => sum + p.capitalInvested, 0);
-  }
-  
-  // === 3.5 AIRDROP CHECK ===
-  // Only DeFi participants can get airdrops
-  if (state.defiStats.positionsOpened > 0) {
-    const airdrop = checkAirdropEligibility(
-      agent.id,
-      state.defiStats.positionsOpened,
-      state.defiStats.totalCapitalDeployed,
-      state.tick - state.defiStats.firstDeFiTick,
-      state.defiStats.protocolsUsed
-    );
-    
-    if (airdrop) {
-      const newAirdrop = generateAirdrop(airdrop, state.tick);
-      state.tokenPortfolio.holdings.set(newAirdrop.id, newAirdrop);
-      dailyEvents.push(`🎁 空投获得 ${newAirdrop.amount} ${newAirdrop.tokenSymbol} (初始价值: $${newAirdrop.initialValueUSDC.toFixed(2)})`);
-    }
-  }
-  
-  // === 4. HUMAN TASK MARKET ===
-  // Can only use liquid capital for task-related costs
-  if (state.liquidCapital > 0) {
-    const availableTasks = getAvailableTasks(agent.id, state.liquidCapital, expression, state.tick);
-    
-    // Try up to 2 tasks per day
-    for (const task of availableTasks.slice(0, 2)) {
-      if (Math.random() < 0.6) { // 60% chance to attempt
-        const result = attemptTask(task, expression, agent.id, state.tick, state.balanceUSDC);
-        
-        if (result.success) {
-          // STRICT 5% CAP: Task earnings (double enforcement)
-          const maxEarnings = state.balanceUSDC * 0.05;
-          let reward = result.reward;
-          if (reward > maxEarnings) {
-            dailyEvents.push(`⚠️ 任务收益被限制: $${reward.toFixed(2)} → $${maxEarnings.toFixed(2)} (5%上限)`);
-            reward = maxEarnings;
-          }
-          state.liquidCapital += reward;
-          state.balanceUSDC += reward;
-          dailyEarnings += reward;
-          state.totalEarned.tasks += reward;
-          updateAgentReputation(agent.id, result.reputationChange);
-          dailyEvents.push(result.message);
-        } else {
-          updateAgentReputation(agent.id, result.reputationChange);
-          dailyEvents.push(result.message);
-        }
-        
-        state.actionHistory.push({
-          tick: state.tick,
-          action: `task:${task.type}`,
-          success: result.success,
-          cost: 0,
-          revenue: result.reward,
-        });
+
+  // BASE_TICK_COST: flat metabolic floor (~30U / 0.8 ≈ 37.5 ticks without income)
+  // 濒死状态：代谢成本降 50%
+  const costMultiplier = state.survivalStatus === 'dying' ? 0.5 : 1.0;
+  const opCost = (CONSTANTS.BASE_TICK_COST + varCost) * costMultiplier;
+
+  const deductFrom = Math.min(opCost, state.balanceUSDC);
+  state.liquidCapital = Math.max(0, state.liquidCapital - deductFrom);
+  updateBalance(agent.id, state, state.balanceUSDC - deductFrom);
+  state.totalSpent.operational += deductFrom;
+  result.costs += deductFrom;
+
+  const suffix = state.survivalStatus === 'dying' ? ' [濒死节能]' : '';
+  result.events.push(`💸 运营成本: -$${opCost.toFixed(3)}${suffix}`);
+
+  return result;
+}
+
+// ─── Phase 3: Open New DeFi Positions ─────────────────────────────────────────
+
+function phase_openDefi(state: SurvivalState, agent: AgentConfig): PhaseResult {
+  const result: PhaseResult = { events: [], earnings: 0, costs: 0, losses: 0 };
+  const expression = expressGenome(agent.genome);
+
+  // 修复: 原代码用 > 10，初始余额正好10永远不满足。改用CONSTANTS.DEFI_MIN_LIQUID
+  if (state.liquidCapital < CONSTANTS.DEFI_MIN_LIQUID || expression.onChainAffinity < 0.3) return result;
+
+  const available = getAvailableDeFiEvents(state.liquidCapital).sort((a, b) => {
+    const scoreA = (a.dailyYieldMin + a.dailyYieldMax) / 2 * (1 - Math.abs(a.riskLevel - expression.riskAppetite));
+    const scoreB = (b.dailyYieldMin + b.dailyYieldMax) / 2 * (1 - Math.abs(b.riskLevel - expression.riskAppetite));
+    return scoreB - scoreA;
+  });
+
+  let opened = 0;
+  for (const defiEvent of available) {
+    if (opened >= 2) break;
+
+    // Trait check
+    let passes = true;
+    for (const [trait, threshold] of Object.entries(defiEvent.requiredTraits)) {
+      if ((expression[trait as keyof typeof expression] as number) < (threshold as number) * 0.8) {
+        passes = false; break;
       }
     }
+    if (!passes) continue;
+
+    const investment = Math.min(state.liquidCapital * 0.3, defiEvent.maxCapital);
+    if (investment < defiEvent.minCapital) continue;
+    if (state.liquidCapital < investment + defiEvent.gasCost) continue;
+
+    const position = openPosition(defiEvent, investment, state.tick);
+    state.defiPortfolio.positions.push(position);
+    state.liquidCapital -= investment + defiEvent.gasCost;
+    updateBalance(agent.id, state, state.balanceUSDC - defiEvent.gasCost);
+    state.totalSpent.operational += defiEvent.gasCost;
+    result.costs += defiEvent.gasCost;
+
+    state.defiStats.positionsOpened++;
+    state.defiStats.totalCapitalDeployed += investment;
+    if (state.defiStats.firstDeFiTick === 0) state.defiStats.firstDeFiTick = state.tick;
+    const protocol = defiEvent.id.split('_')[0];
+    if (!state.defiStats.protocolsUsed.includes(protocol)) state.defiStats.protocolsUsed.push(protocol);
+
+    result.events.push(`🔒 开仓 ${defiEvent.name}: $${investment.toFixed(2)} (锁仓${defiEvent.lockupPeriodTicks}天)`);
+    opened++;
   }
-  
-  // === 5. NEGATIVE EVENTS ===
-  // Can affect both liquid and locked capital
+
+  state.defiPortfolio.totalLockedCapital = state.defiPortfolio.positions
+    .filter(p => p.status === 'active')
+    .reduce((s, p) => s + p.capitalInvested, 0);
+
+  return result;
+}
+
+// ─── Phase 4: Airdrop Check ───────────────────────────────────────────────────
+
+function phase_airdrops(state: SurvivalState, agentId: string): PhaseResult {
+  const result: PhaseResult = { events: [], earnings: 0, costs: 0, losses: 0 };
+  if (state.defiStats.positionsOpened === 0) return result;
+
+  const airdrop = checkAirdropEligibility(
+    agentId,
+    state.defiStats.positionsOpened,
+    state.defiStats.totalCapitalDeployed,
+    state.tick - state.defiStats.firstDeFiTick,
+    state.defiStats.protocolsUsed
+  );
+
+  if (airdrop) {
+    const newAirdrop = generateAirdrop(airdrop, state.tick);
+    state.tokenPortfolio.holdings.set(newAirdrop.id, newAirdrop);
+    result.events.push(`🎁 空投: ${newAirdrop.amount} ${newAirdrop.tokenSymbol} ($${newAirdrop.initialValueUSDC.toFixed(2)})`);
+  }
+
+  if (state.tokenPortfolio.holdings.size > 0) {
+    const tokenUpdate = updateTokenValues(state.tokenPortfolio, state.tick);
+    result.events.push(...tokenUpdate.messages);
+  }
+
+  return result;
+}
+
+// ─── Phase 5: Human Task Market ───────────────────────────────────────────────
+
+function phase_humanTasks(state: SurvivalState, agent: AgentConfig): PhaseResult {
+  const result: PhaseResult = { events: [], earnings: 0, costs: 0, losses: 0 };
+  if (state.liquidCapital <= 0) return result;
+
+  const expression = expressGenome(agent.genome);
+  const tasks = getAvailableTasks(agent.id, state.liquidCapital, expression, state.tick);
+
+  for (const task of tasks.slice(0, 2)) {
+    if (Math.random() < 0.6) {
+      const taskResult = attemptTask(task, expression, agent.id, state.tick, state.balanceUSDC);
+
+      if (taskResult.success) {
+        const { capped, wasCapped } = capEarnings(taskResult.reward, state.balanceUSDC);
+        if (wasCapped) result.events.push(`⚠️ 任务收益限流: $${taskResult.reward.toFixed(2)}→$${capped.toFixed(2)}`);
+        state.liquidCapital += capped;
+        updateBalance(agent.id, state, state.balanceUSDC + capped);
+        state.totalEarned.tasks += capped;
+        result.earnings += capped;
+        updateAgentReputation(agent.id, taskResult.reputationChange);
+        result.events.push(taskResult.message);
+      } else {
+        updateAgentReputation(agent.id, taskResult.reputationChange);
+        result.events.push(taskResult.message);
+      }
+
+      state.actionHistory.push({ tick: state.tick, action: `task:${task.type}`, success: taskResult.success, cost: 0, revenue: taskResult.reward });
+    }
+  }
+
+  return result;
+}
+
+// ─── Phase 6: Negative Events (per-agent, no global state) ───────────────────
+
+function phase_negativeEvents(state: SurvivalState, agent: AgentConfig): PhaseResult {
+  const result: PhaseResult = { events: [], earnings: 0, costs: 0, losses: 0 };
+  const expression = expressGenome(agent.genome);
   const negativeEvents = generateDailyNegativeEvents();
+
   for (const negEvent of negativeEvents) {
-    const result = applyNegativeEvent(negEvent, state.balanceUSDC, expression);
-    
-    if (!result.avoided) {
-      // If loss exceeds liquid capital, liquidate some positions
-      if (result.loss > state.liquidCapital) {
-        const shortfall = result.loss - state.liquidCapital;
-        dailyEvents.push(`⚠️ 需要清算 $${shortfall.toFixed(2)} 的锁仓资金应对损失`);
-        
-        // Try to exit positions early
-        for (const position of state.defiPortfolio.positions) {
-          if (position.status !== 'active') continue;
-          const event = DEFI_EVENTS.find(e => e.id === position.eventId);
-          if (!event) continue;
-          
-          const exitResult = exitPosition(position, event, state.tick);
-          if (exitResult.success) {
-            // STRICT 5% CAP: Emergency exit yield
-            const maxEarnings = state.balanceUSDC * 0.05;
-            let yieldClaimed = exitResult.yieldClaimed;
-            if (yieldClaimed > maxEarnings) {
-              yieldClaimed = maxEarnings;
-            }
-            state.liquidCapital += exitResult.capitalReturned + yieldClaimed;
-            state.lockedCapital -= position.capitalInvested;
-            dailyEvents.push(`🔥 紧急清算 ${event.name}: ${exitResult.message}`);
-            
-            if (state.liquidCapital >= result.loss) break;
-          }
-        }
-      }
-      
-      const actualLoss = Math.min(result.loss, state.balanceUSDC);
+    const eventResult = applyNegativeEvent(negEvent, state.balanceUSDC, expression);
+
+    if (!eventResult.avoided) {
+      const actualLoss = Math.min(eventResult.loss, state.balanceUSDC);
       state.liquidCapital = Math.max(0, state.liquidCapital - actualLoss);
-      state.balanceUSDC = Math.max(0, state.balanceUSDC - actualLoss);
-      dailyLosses += actualLoss;
+      updateBalance(agent.id, state, state.balanceUSDC - actualLoss);
       state.totalSpent.losses += actualLoss;
-      dailyEvents.push(result.message);
-    } else {
-      dailyEvents.push(result.message);
+      result.losses += actualLoss;
     }
+
+    result.events.push(eventResult.message);
   }
-  
-  // === 6. MULTI-LLM DECISIONS (within tick, with min interval) ===
-  const llmCallsPerTick = parseInt(process.env.LLM_CALLS_PER_TICK || '3');
-  const minLLMIntervalMs = parseInt(process.env.MIN_LLM_INTERVAL_MS || '5000');
-  
-  // Reset counter at start of new tick
-  if (state.tick > 0 && state.llmCallsThisTick >= llmCallsPerTick) {
-    state.llmCallsThisTick = 0;
-  }
-  
-  // Make multiple LLM calls within the tick, respecting min interval
-  let llmCallCount = 0;
-  const maxAttempts = llmCallsPerTick;
-  
-  for (let i = 0; i < maxAttempts; i++) {
-    // Check if we can afford another call
+
+  return result;
+}
+
+// ─── Phase 7: LLM Decisions ───────────────────────────────────────────────────
+
+async function phase_llmDecisions(
+  state: SurvivalState,
+  agent: AgentConfig,
+  decisionEngine: DecisionEngine
+): Promise<PhaseResult> {
+  const result: PhaseResult = { events: [], earnings: 0, costs: 0, losses: 0 };
+
+  const llmCallsPerTick = env.LLM_CALLS_PER_TICK;
+  if (llmCallsPerTick <= 0) return result;
+
+  const expression = expressGenome(agent.genome);
+  const minInterval = env.MIN_LLM_INTERVAL_MS;
+  state.llmCallsThisTick = 0;
+
+  for (let i = 0; i < llmCallsPerTick; i++) {
     const inferenceCost = getInferenceCostEstimate();
-    if (state.liquidCapital <= inferenceCost + 1) {
-      if (llmCallCount === 0) {
-        dailyEvents.push(`⏸️ 流动资本不足，跳过 LLM 决策 (需要 $${inferenceCost.toFixed(4)})`);
-      }
-      break;
-    }
-    
-    // Check min interval since last call
+    if (state.liquidCapital <= inferenceCost + 0.5) break;
+
     const now = Date.now();
-    const timeSinceLastCall = now - state.lastLLMCallTime;
-    if (state.lastLLMCallTime > 0 && timeSinceLastCall < minLLMIntervalMs) {
-      const waitTime = minLLMIntervalMs - timeSinceLastCall;
-      dailyEvents.push(`⏱️ LLM 调用间隔限制，等待 ${(waitTime/1000).toFixed(1)}s`);
-      await sleep(waitTime);
-    }
-    
+    const wait = state.lastLLMCallTime > 0 ? minInterval - (now - state.lastLLMCallTime) : 0;
+    if (wait > 0) await new Promise(r => setTimeout(r, wait));
+
     try {
       const perception = await perceive({
         agentId: agent.id,
@@ -508,212 +379,293 @@ export const runSurvivalTick = async (
         tick: state.tick,
         age: state.tick,
         generation: agent.genome.meta.generation,
-        callNumber: i + 1, // Pass call number for context
-        totalCallsExpected: maxAttempts,
+        callNumber: i + 1,
+        totalCallsExpected: llmCallsPerTick,
       });
-      
-      const decisionStartTime = Date.now();
+
       const decision = await decisionEngine.decide(perception, agent.genome);
-      const decisionLatency = Date.now() - decisionStartTime;
-      
-      // Deduct cost
+
       state.liquidCapital -= inferenceCost;
-      state.balanceUSDC -= inferenceCost;
-      dailyCosts += inferenceCost;
-      
-      // Update tracking
+      updateBalance(agent.id, state, state.balanceUSDC - inferenceCost);
       state.lastLLMCallTime = Date.now();
       state.llmCallsThisTick++;
       state.totalLLMCalls++;
-      llmCallCount++;
-      
-      // Log decision
+      result.costs += inferenceCost;
+
       const decisionType = decision?.selectedStrategy?.type || 'unknown';
-      dailyEvents.push(`🧠 LLM 决策 #${llmCallCount}/${maxAttempts}: ${decisionType} (成本: $${inferenceCost.toFixed(4)})`);
-      
-      // 📝 记录到 API 历史 (用于死亡档案)
+      result.events.push(`🧠 LLM #${i + 1}: ${decisionType} | ${decision.reasoning?.slice(0, 60) || ''} (-$${inferenceCost.toFixed(4)})`);
+
+      // 保存最后一次推理（用于墓碑）
+      if (decision.reasoning) state.lastReasoning = decision.reasoning;
+
+      // 涌现行为检测
+      const reasoning = decision.rawResponse || decision.reasoning || '';
+      const emergentPatterns: Array<[RegExp, string]> = [
+        [/i (don'?t )?want to (die|survive|live)/i, 'self-preservation'],
+        [/i (choose|decide) to (?!select action)/i, 'autonomous-choice'],
+        [/other agents (will|might|should)/i, 'predictive-modeling'],
+        [/if i (do|don'?t) this.*(then|because)/i, 'causal-reasoning'],
+        [/remember.*(last|previous|before)/i, 'cross-tick-memory'],
+      ];
+      for (const [pattern, label] of emergentPatterns) {
+        if (pattern.test(reasoning)) {
+          state.emergentBehaviorInfo = { pattern: label, reasoning: reasoning.slice(0, 300), tick: state.tick };
+          result.events.push(`⚡ 涌现行为检测: ${label}`);
+          break;
+        }
+      }
+
+      // 保存完整对话记录到 logs/conversations.jsonl
+      if (decision.rawPrompt && decision.rawResponse) {
+        await logConversation({
+          timestamp: Date.now(),
+          agentId: agent.id,
+          agentShortId: agent.id.slice(0, 8),
+          tick: state.tick,
+          callIndex: i + 1,
+          model: decision.llmModel || 'unknown',
+          costUSD: decision.llmCostUSD ?? inferenceCost,
+          balance: state.balanceUSDC,
+          prompt: decision.rawPrompt,
+          response: decision.rawResponse,
+          decision: {
+            strategyType: decisionType,
+            reasoning: decision.reasoning,
+            confidence: decision.confidence,
+          },
+        });
+      }
+
       recordAPIRequest(agent.id, {
         tick: state.tick,
         timestamp: Date.now(),
         decision: decisionType,
-        outcome: 'neutral', // 后续根据action结果更新
-        impact: -inferenceCost, // 先记录成本
+        outcome: 'neutral',
+        impact: -inferenceCost,
         cost: inferenceCost,
-        prompt_preview: perception.toString().slice(0, 100),
-        response_preview: JSON.stringify(decision).slice(0, 100),
+        prompt_preview: decision.rawPrompt?.slice(0, 120) || '',
+        response_preview: decision.rawResponse?.slice(0, 120) || '',
       });
-      
-      // Execute decision immediately (some decisions may open/close positions)
-      if (decision?.selectedAction) {
-        state.actionHistory.push({
-          tick: state.tick,
-          action: `llm:${decisionType}:${decision.selectedAction.type}`,
-          success: true,
-          cost: inferenceCost,
-          revenue: 0,
-        });
-      }
-      
-    } catch (error) {
-      dailyEvents.push(`❌ LLM 调用 #${i + 1} 失败: ${error instanceof Error ? error.message : '未知错误'}`);
-      // Continue to next attempt even if this one failed
+    } catch (err) {
+      result.events.push(`❌ LLM #${i + 1} 失败: ${err instanceof Error ? err.message : '未知错误'}`);
     }
   }
-  
-  if (llmCallCount > 0) {
-    dailyEvents.push(`📊 本 tick 完成 ${llmCallCount} 次 LLM 决策，总计 ${state.totalLLMCalls} 次`);
+
+  if (state.llmCallsThisTick > 0) {
+    result.events.push(`📊 本tick LLM: ${state.llmCallsThisTick}次, 总计 ${state.totalLLMCalls}次`);
   }
-  
-  // === 7. TOKEN SELLING DECISIONS ===
-  // Decide whether to hold or sell airdropped tokens
-  if (state.tokenPortfolio.holdings.size > 0) {
-    for (const [tokenId, token] of state.tokenPortfolio.holdings) {
-      const ticksHeld = state.tick - token.receivedTick;
-      const pnl = token.currentValueUSDC - token.initialValueUSDC;
-      const pnlPct = (pnl / token.initialValueUSDC) * 100;
-      
-      let shouldSell = false;
-      let sellPercentage = 0;
-      let reason = '';
-      
-      // Simple decision logic based on gene traits
-      if (expression.riskAppetite > 0.7) {
-        // High risk appetite - hold for moon, sell only if dying
-        if (pnlPct < -50) {
-          shouldSell = true;
-          sellPercentage = 1;
-          reason = '高风险偏好者止损';
-        } else if (pnlPct > 300) {
-          shouldSell = true;
-          sellPercentage = 0.5;
-          reason = '获利了结一半';
-        }
-      } else if (expression.riskAppetite < 0.3) {
-        // Low risk appetite - take profits early
-        if (pnlPct > 50) {
-          shouldSell = true;
-          sellPercentage = 0.8;
-          reason = '保守型获利了结';
-        } else if (pnlPct < -30) {
-          shouldSell = true;
-          sellPercentage = 1;
-          reason = '保守型止损';
-        }
-      } else {
-        // Medium risk - balanced approach
-        if (pnlPct > 150) {
-          shouldSell = true;
-          sellPercentage = 0.5;
-          reason = '中等风险偏好获利';
-        } else if (pnlPct < -40) {
-          shouldSell = true;
-          sellPercentage = 0.5;
-          reason = '中等风险偏好止损';
-        } else if (ticksHeld > 14) {
-          shouldSell = true;
-          sellPercentage = 0.3;
-          reason = '持有过久，部分止盈';
-        }
+
+  return result;
+}
+
+// ─── Phase 8: Token Management ────────────────────────────────────────────────
+
+function phase_tokenManagement(state: SurvivalState, agent: AgentConfig): PhaseResult {
+  const result: PhaseResult = { events: [], earnings: 0, costs: 0, losses: 0 };
+  if (state.tokenPortfolio.holdings.size === 0) return result;
+
+  const expression = expressGenome(agent.genome);
+
+  for (const [tokenId, token] of state.tokenPortfolio.holdings) {
+    const pnlPct = ((token.currentValueUSDC - token.initialValueUSDC) / token.initialValueUSDC) * 100;
+    const ticksHeld = state.tick - token.receivedTick;
+    let sellPct = 0;
+
+    if (state.liquidCapital < 2 && token.currentValueUSDC > 0.5) {
+      sellPct = 1;
+    } else if (expression.riskAppetite > 0.7) {
+      if (pnlPct < -50) sellPct = 1;
+      else if (pnlPct > 300) sellPct = 0.5;
+    } else if (expression.riskAppetite < 0.3) {
+      if (pnlPct > 50) sellPct = 0.8;
+      else if (pnlPct < -30) sellPct = 1;
+    } else {
+      if (pnlPct > 150) sellPct = 0.5;
+      else if (pnlPct < -40) sellPct = 0.5;
+      else if (ticksHeld > 14) sellPct = 0.3;
+    }
+
+    if (sellPct > 0) {
+      const sellResult = sellTokens(state.tokenPortfolio, tokenId, sellPct, state.tick);
+      if (sellResult.success) {
+        const { capped } = capEarnings(sellResult.usdcReceived, state.balanceUSDC);
+        state.liquidCapital += capped;
+        updateBalance(agent.id, state, state.balanceUSDC + capped);
+        state.totalEarned.tokens += capped;
+        result.earnings += capped;
+        result.events.push(`💱 ${sellResult.message}`);
       }
-      
-      // Emergency sell if low on liquid capital
-      if (state.liquidCapital < 2 && token.currentValueUSDC > 1) {
-        shouldSell = true;
-        sellPercentage = Math.min(1, (3 - state.liquidCapital) / token.currentValueUSDC);
-        reason = '紧急资金需求';
-      }
-      
-      if (shouldSell && sellPercentage > 0) {
-        const sellResult = sellTokens(state.tokenPortfolio, tokenId, sellPercentage, state.tick);
-        if (sellResult.success) {
-          // STRICT 5% CAP: Token sale earnings
-          const maxEarnings = state.balanceUSDC * 0.05;
-          let received = sellResult.usdcReceived;
-          if (received > maxEarnings) {
-            dailyEvents.push(`⚠️ 代币卖出收益被限制: $${received.toFixed(2)} → $${maxEarnings.toFixed(2)} (5%上限)`);
-            received = maxEarnings;
-          }
-          state.liquidCapital += received;
-          state.balanceUSDC += received;
-          dailyEarnings += received;
-          state.totalEarned.tokens += received;
-          dailyEvents.push(`💱 ${sellResult.message} (${reason})`);
-        }
-      } else {
-        // Decision to hold
-        const holdResult = holdTokens(state.tokenPortfolio, tokenId, 
-          expression.riskAppetite > 0.6 ? '等待更高收益' : '等待回本');
-        if (ticksHeld % 5 === 0) { // Log hold decision every 5 ticks
-          dailyEvents.push(`💎 ${holdResult.message}`);
-        }
+    } else if (ticksHeld % 5 === 0) {
+      result.events.push(`💎 持有 ${token.tokenSymbol} (持仓${ticksHeld}天, PnL ${pnlPct.toFixed(0)}%)`);
+    }
+  }
+
+  return result;
+}
+
+// ─── Phase 9: Breeding Check ──────────────────────────────────────────────────
+
+function phase_breedingCheck(
+  state: SurvivalState,
+  agent: AgentConfig,
+  allAgents: AgentConfig[],
+  balances: Map<string, number>,
+  stageInfo: StageInfo
+): { breedingRequest?: AgentConfig; events: string[] } {
+  if (!stageInfo.canReproduce) return { events: [] };
+  if (!canBreed(agent, state.balanceUSDC, state.tick, state.lastBreedingTick)) return { events: [] };
+
+  const mate = selectMate(agent, allAgents.filter(a => a.id !== agent.id), balances);
+  if (!mate) return { events: ['💕 寻找繁殖伴侣——无合适候选'] };
+
+  // 修复：更新 lastBreedingTick，防止每tick重复请求
+  state.lastBreedingTick = state.tick;
+
+  // 扣除繁殖成本
+  const cost = CONSTANTS.BREEDING_COST_PER_PARENT;
+  state.liquidCapital = Math.max(0, state.liquidCapital - cost);
+  const agentObj = { id: agent.id } as { id: string };
+  updateBalance(agentObj.id, state, state.balanceUSDC - cost);
+
+  return {
+    breedingRequest: mate,
+    events: [`💕 发起繁殖请求 → 伴侣: ${mate.id.slice(0, 8)}... (本tick不再重复)`],
+  };
+}
+
+// ─── Main Tick Orchestrator ───────────────────────────────────────────────────
+
+export const runSurvivalTick = async (
+  agent: AgentConfig,
+  state: SurvivalState,
+  decisionEngine: DecisionEngine,
+  allAgents: AgentConfig[],
+  balances: Map<string, number>
+): Promise<{
+  state: SurvivalState;
+  tombstone?: Tombstone;
+  breedingRequest?: AgentConfig;
+  dailyReport?: DailyReport;
+}> => {
+  state.tick++;
+  state.llmCallsThisTick = 0;
+  state.emergentBehaviorInfo = undefined; // 每 tick 清空涌现行为标记
+
+  // Sync simulated balance
+  const chainBalance = await getUSDCBalance(agent.id);
+  if (chainBalance > 0) state.balanceUSDC = chainBalance;
+  setSimulatedBalance(agent.id, state.balanceUSDC);
+
+  state.lockedCapital = state.defiPortfolio.totalLockedCapital;
+  state.liquidCapital = Math.max(0, state.balanceUSDC - state.lockedCapital);
+
+  // ── 濒死状态推进 ──────────────────────────────────────────────────────
+  if (state.survivalStatus === 'dying') {
+    if (state.balanceUSDC >= CONSTANTS.DYING_BALANCE_THRESHOLD) {
+      // 余额恢复，脱离濒死
+      state.survivalStatus = 'alive';
+      state.dyingTicksRemaining = 0;
+      state.eventLog.push({ tick: state.tick, event: '💚 余额恢复，脱离濒死状态', impact: 0 });
+    } else {
+      state.dyingTicksRemaining--;
+      if (state.dyingTicksRemaining <= 0) {
+        const verdict = { isDead: true, cause: 'starvation' as const, reason: '濒死超时，余额耗尽' };
+        const tombstone = executeDeath(agent, 'starvation', state.tick, state.balanceUSDC, state, verdict);
+        return { state: { ...state, isAlive: false }, tombstone };
       }
     }
   }
-  
-  // === 8. BREEDING CHECK ===
-  let breedingRequest: AgentConfig | undefined;
-  if (stageInfo.canReproduce && canBreed(agent, state.balanceUSDC, state.tick, state.lastBreedingTick)) {
-    breedingRequest = selectMate(agent, allAgents.filter(a => a.id !== agent.id), balances) || undefined;
-    if (breedingRequest) {
-      dailyEvents.push('💕 寻找繁殖伴侣');
-    }
+
+  // ── 衰老死亡检查 ──────────────────────────────────────────────────────
+  if (checkSenescence(state.tick)) {
+    const verdict = { isDead: true, cause: 'senescence' as const, reason: `衰老死亡 (tick ${state.tick})` };
+    const tombstone = executeDeath(agent, 'senescence', state.tick, state.balanceUSDC, state, verdict);
+    return { state: { ...state, isAlive: false }, tombstone };
   }
-  
-  // === 8. MEMORY ===
-  if (state.tick % 1 === 0) {
+
+  // ── 紧急死亡（余额极低但未通过濒死逻辑处理）──────────────────────────
+  const deathVerdict = checkDeath(agent, state.balanceUSDC, state.tick, state.consecutiveFailures);
+  if (deathVerdict.isDead && deathVerdict.cause) {
+    const cause = deathVerdict.cause === 'economic' ? 'starvation' : deathVerdict.cause;
+    const tombstone = executeDeath(agent, cause as any, state.tick, state.balanceUSDC, state, deathVerdict);
+    return { state: { ...state, isAlive: false }, tombstone };
+  }
+
+  const expression = expressGenome(agent.genome);
+  const stageInfo = determineStage(state.tick, 1000);
+  state.stage = stageInfo.stage;
+
+  // Run all phases
+  const p1 = phase_existingDefi(state);
+  const p2 = phase_dailyCosts(state, agent);
+  const p3 = phase_openDefi(state, agent);
+  const p4 = phase_airdrops(state, agent.id);
+  const p5 = phase_humanTasks(state, agent);
+  const p6 = phase_negativeEvents(state, agent);
+  const p7 = await phase_llmDecisions(state, agent, decisionEngine);
+  const p8 = phase_tokenManagement(state, agent);
+  const p9 = phase_breedingCheck(state, agent, allAgents, balances, stageInfo);
+
+  const allEvents = [...p1.events, ...p2.events, ...p3.events, ...p4.events,
+                     ...p5.events, ...p6.events, ...p7.events, ...p8.events, ...p9.events];
+
+  const totalEarnings = p1.earnings + p5.earnings + p8.earnings;
+  const totalCosts    = p2.costs + p3.costs + p7.costs;
+  const totalLosses   = p6.losses;
+  const netFlow = totalEarnings - totalCosts - totalLosses;
+
+  state.consecutiveFailures = netFlow < 0 ? state.consecutiveFailures + 1 : 0;
+  state.lockedCapital = state.defiPortfolio.totalLockedCapital;
+
+  // ── 更新濒死状态 ─────────────────────────────────────────────────────
+  if (state.survivalStatus !== 'dying' && state.balanceUSDC < CONSTANTS.DYING_BALANCE_THRESHOLD) {
+    state.survivalStatus = 'dying';
+    state.dyingTicksRemaining = CONSTANTS.DYING_DURATION;
+    state.eventLog.push({ tick: state.tick, event: `💀 进入濒死状态 (余额 $${state.balanceUSDC.toFixed(3)}, ${CONSTANTS.DYING_DURATION} ticks 后死亡)`, impact: 0 });
+  }
+
+  // Persist memory every 5 ticks (not every tick)
+  if (state.tick % 5 === 0) {
     await inscribeMemory({
       agentId: agent.id,
       tick: state.tick,
       timestamp: Date.now(),
-      thoughts: dailyEvents,
+      thoughts: allEvents,
       transactions: [],
       genomeHash: agent.genome.meta.genomeHash,
       balance: state.balanceUSDC,
     });
   }
-  
-  // Update final totals
-  state.lockedCapital = state.defiPortfolio.totalLockedCapital;
-  
-  // Calculate net flow
-  const netFlow = dailyEarnings - dailyCosts - dailyLosses;
-  
-  if (netFlow < 0) {
-    state.consecutiveFailures++;
-  } else {
-    state.consecutiveFailures = 0;
-  }
-  
-  const dailyReport = {
+
+  const dailyReport: DailyReport = {
     tick: state.tick,
-    costs: dailyCosts + dailyLosses,
-    earnings: dailyEarnings,
+    costs: totalCosts + totalLosses,
+    earnings: totalEarnings,
     netFlow,
     lockedCapital: state.lockedCapital,
     liquidCapital: state.liquidCapital,
     activePositions: state.defiPortfolio.positions.filter(p => p.status === 'active').length,
     llmCallsThisTick: state.llmCallsThisTick,
     totalLLMCalls: state.totalLLMCalls,
-    tokenHoldings: state.tokenPortfolio.holdings.size,
-    tokenValue: state.tokenPortfolio.totalCurrentValue,
-    events: dailyEvents,
+    events: allEvents,
   };
-  
-  return { state, breedingRequest, dailyReport };
+
+  return { state, breedingRequest: p9.breedingRequest, dailyReport };
 };
 
-// Get daily DeFi events available to agents
-export const getDailyDeFiEvents = (): DeFiEvent[] => {
-  return getAvailableDeFiEvents(1000);
-};
+export interface DailyReport {
+  tick: number;
+  costs: number;
+  earnings: number;
+  netFlow: number;
+  lockedCapital: number;
+  liquidCapital: number;
+  activePositions: number;
+  llmCallsThisTick: number;
+  totalLLMCalls: number;
+  events: string[];
+}
 
-// Get global active events (negative events that can affect agents)
-export const getGlobalActiveEvents = (): string[] => {
-  return [
-    'market_crash',
-    'contract_exploit', 
-    'rug_pull',
-    'flash_loan_attack',
-    'oracle_manipulation',
-  ];
-};
+// Legacy exports (for compatibility with other modules that import these)
+export const getDailyDeFiEvents = () => getAvailableDeFiEvents(1000);
+export const getGlobalActiveEvents = () => ['market_crash', 'contract_exploit', 'rug_pull'];

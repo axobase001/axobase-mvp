@@ -170,7 +170,7 @@ const callKimiOfficial = async (
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'kimi-k2-5',
+      model: process.env.KIMI_MODEL || 'moonshot-v1-8k',
       messages: [
         { role: 'user', content: prompt }
       ],

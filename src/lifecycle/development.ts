@@ -20,6 +20,14 @@ export interface StageInfo {
   metabolismMultiplier: number;
 }
 
+/** Returns true if this tick the agent dies of old age */
+export function checkSenescence(tick: number): boolean {
+  if (tick < CONSTANTS.SENESCENCE_START_TICK) return false;
+  const deathChance = CONSTANTS.SENESCENCE_BASE_DEATH_RATE +
+    (tick - CONSTANTS.SENESCENCE_START_TICK) * 0.001;
+  return Math.random() < Math.min(deathChance, 0.5);
+}
+
 export const determineStage = (tick: number, maxLifespan: number): StageInfo => {
   if (tick < CONSTANTS.NEONATE_DURATION) {
     return {

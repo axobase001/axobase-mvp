@@ -19,6 +19,11 @@ export interface Decision {
   reasoning: string;
   confidence: number;
   costEstimate: number;
+  // Full conversation record — populated on real LLM calls
+  rawPrompt?: string;
+  rawResponse?: string;
+  llmModel?: string;
+  llmCostUSD?: number;
 }
 
 export interface DecisionEngineConfig {
@@ -72,8 +77,14 @@ export class DecisionEngine {
     } catch (error) {
       return this.createFallbackDecision();
     }
-    
-    return this.parseDecision(llmResult.text, availableStrategies, expression);
+
+    const decision = this.parseDecision(llmResult.text, availableStrategies, expression);
+    // Attach full conversation data for logging — no hallucination
+    decision.rawPrompt = prompt;
+    decision.rawResponse = llmResult.text;
+    decision.llmModel = llmResult.model;
+    decision.llmCostUSD = llmResult.costUSD;
+    return decision;
   }
 
   private parseDecision(

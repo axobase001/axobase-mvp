@@ -45,3 +45,6 @@ Thumbs.db
 # Next.js
 .next/
 out/
+
+# Local utility scripts
+convert-logs.cjs

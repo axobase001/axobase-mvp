@@ -430,13 +430,8 @@ export const attemptTask = (
       qualityMultiplier += expression.cooperationTendency * 0.3;
     }
     
-    let finalReward = parseFloat((baseReward * qualityMultiplier).toFixed(2));
-    
-    // STRICT CAP: Cannot exceed 5% of total capital for ANY positive reward
-    const maxReward = capital * 0.05;
-    if (finalReward > maxReward) {
-      finalReward = maxReward;
-    }
+    const finalReward = parseFloat((baseReward * qualityMultiplier).toFixed(2));
+    // Note: per-tick earnings cap is enforced in survival.ts (CONSTANTS.EARNINGS_CAP_PERCENT)
     
     // Update reputation positively
     const repGain = 0.02 + (finalReward / 10) * 0.03;

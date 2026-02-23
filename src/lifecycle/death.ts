@@ -9,8 +9,23 @@ import { CONSTANTS } from '../config/constants.js';
 import { clearAgentQueue } from '../tools/network.js';
 import { SurvivalState } from './survival.js';
 import { createDeathRecord, recordToGraveyard, APIRequestRecord } from '../monitoring/graveyard.js';
+import { appendFileSync, existsSync, mkdirSync } from 'fs';
 
-export type DeathCause = 'economic' | 'genetic' | 'natural' | 'suicide';
+const TOMBSTONE_FILE = './logs/tombstones.jsonl';
+const ensureLogsDir = () => {
+  if (!existsSync('./logs')) mkdirSync('./logs', { recursive: true });
+};
+
+export type DeathCause =
+  | 'starvation'    // 余额耗尽（濒死超时）
+  | 'competition'   // 种群过载竞争淘汰
+  | 'plague'        // 环境灾难
+  | 'senescence'    // 衰老自然死亡
+  | 'economic'      // 旧兼容
+  | 'genetic'       // 基因缺陷
+  | 'natural'       // 旧兼容
+  | 'suicide'       // 自我终止
+  | 'unknown';
 
 export interface DeathVerdict {
   isDead: boolean;
@@ -94,19 +109,51 @@ export const executeDeath = (
   verdict?: DeathVerdict
 ): Tombstone => {
   clearAgentQueue(agent.id);
-  
+
   // 🪦 自动记录到数字墓地
   if (state && verdict) {
     try {
       const apiHistory = getAPIHistory(agent.id);
       const record = createDeathRecord(agent, state, verdict, apiHistory);
       recordToGraveyard(record);
-      clearAPIHistory(agent.id); // 清理历史记录
+      clearAPIHistory(agent.id);
     } catch (error) {
       console.error('❌ 记录死亡档案失败:', error);
     }
   }
-  
+
+  // 写纯文本墓碑到 logs/tombstones.txt
+  try {
+    ensureLogsDir();
+    const ts = new Date().toISOString();
+    const sep = '─'.repeat(60);
+    const earned = state?.totalEarned ?? { defi: 0, tasks: 0, events: 0, tokens: 0 };
+    const spent = state?.totalSpent ?? { operational: 0, losses: 0, inference: 0 };
+    const lastActions = (state?.actionHistory ?? []).slice(-5)
+      .map(a => `    tick${a.tick} ${a.action} ${a.success ? '✓' : '✗'} +$${a.revenue.toFixed(3)} -$${a.cost.toFixed(3)}`)
+      .join('\n') || '    (none)';
+    const text = [
+      '',
+      '═'.repeat(60),
+      `TOMBSTONE  Agent: ${agent.id.slice(0, 12)}  Died: ${ts}`,
+      `Cause: ${cause.toUpperCase()}  Age: ${tick} ticks  Final Balance: $${balanceUSDC.toFixed(4)}`,
+      `Generation: ${agent.genome.meta.generation}  Parents: ${agent.parentIds ? agent.parentIds.map(p => p.slice(0, 8)).join(' × ') : 'founder'}`,
+      `Genome Hash: ${agent.genome.meta.genomeHash.slice(0, 24)}  Total Genes: ${agent.genome.meta.totalGenes}`,
+      sep,
+      `LLM Calls: ${state?.totalLLMCalls ?? 0}`,
+      `Earned — DeFi: $${earned.defi?.toFixed(3) ?? 0}  Tasks: $${earned.tasks?.toFixed(3) ?? 0}  Tokens: $${(earned.tokens ?? 0).toFixed(3)}`,
+      `Spent  — Ops: $${spent.operational?.toFixed(3) ?? 0}  Losses: $${spent.losses?.toFixed(3) ?? 0}  Inference: $${(spent.inference ?? 0).toFixed(3)}`,
+      sep,
+      'LAST 5 ACTIONS:',
+      lastActions,
+      sep,
+      'LAST REASONING:',
+      (state?.lastReasoning ?? '(no reasoning recorded)').trim(),
+      '',
+    ].join('\n');
+    appendFileSync('./logs/tombstones.txt', text);
+  } catch { /* best effort */ }
+
   return {
     agentId: agent.id,
     timestamp: Date.now(),

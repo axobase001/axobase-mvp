@@ -1,9 +1,13 @@
 /**
  * Environment Perception
- * Gathers information for agent decision making
+ * Gathers real simulation state for agent decision making.
+ *
+ * 修复：不再使用硬编码余额（原来始终返回10 USDC），
+ * 改为从 simulated balance 存储读取，确保 LLM 收到真实数据。
  */
 
 import { ExpressionResult } from '../genome/types.js';
+import { getSimulatedBalance } from '../tools/wallet.js';
 
 export interface PerceptionResult {
   self: {
@@ -11,8 +15,8 @@ export interface PerceptionResult {
     genomeExpression: ExpressionResult;
     age: number;
     generation: number;
-    callNumber?: number;        // Which LLM call this is within the tick
-    totalCallsExpected?: number; // Total LLM calls expected this tick
+    callNumber?: number;
+    totalCallsExpected?: number;
   };
   balance: {
     usdc: number;
@@ -49,23 +53,25 @@ interface PerceptionConfig {
   tick: number;
   age: number;
   generation: number;
-  callNumber?: number;        // Which LLM call this is within the tick
-  totalCallsExpected?: number; // Total LLM calls expected this tick
+  callNumber?: number;
+  totalCallsExpected?: number;
 }
 
-const MOCK_ETH_PRICE = 3000;
-const MOCK_GAS_PRICE = 0.1;
+// Simulation-mode constants (no real chain)
+const SIM_ETH_BALANCE = 0.01;
+const SIM_ETH_PRICE = 3000;
+const SIM_GAS_PRICE = 0.1;
 
 export const perceive = async (config: PerceptionConfig): Promise<PerceptionResult> => {
   const { agentId, genomeExpression, tick, age, generation, callNumber, totalCallsExpected } = config;
-  
-  // DECISION: Using mock values for MVP - real implementation would query chain
-  const usdcBalance = await getUSDCBalance(agentId);
-  const ethBalance = await getETHBalance(agentId);
-  
+
+  // Use real simulated balance — fixes the hardcoded-10 bug
+  const usdcBalance = getSimulatedBalance(agentId) ?? 0;
+  const ethBalance = SIM_ETH_BALANCE;
+
   const dailyBurn = genomeExpression.metabolicCost;
   const runway = usdcBalance / (dailyBurn || 0.01);
-  
+
   return {
     self: {
       agentId,
@@ -86,8 +92,8 @@ export const perceive = async (config: PerceptionConfig): Promise<PerceptionResu
       stressLevel: calculateStress(usdcBalance, runway),
     },
     market: {
-      ethPrice: MOCK_ETH_PRICE,
-      gasPrice: MOCK_GAS_PRICE,
+      ethPrice: SIM_ETH_PRICE,
+      gasPrice: SIM_GAS_PRICE,
       opportunities: [],
       riskLevel: determineMarketRisk(usdcBalance),
     },
@@ -123,13 +129,4 @@ const determineMarketRisk = (balance: number): PerceptionResult['market']['riskL
   if (balance < 2) return 'high';
   if (balance < 5) return 'medium';
   return 'low';
-};
-
-// Mock functions - to be replaced with real chain queries
-const getUSDCBalance = async (agentId: string): Promise<number> => {
-  return 10;
-};
-
-const getETHBalance = async (agentId: string): Promise<number> => {
-  return 0.01;
 };

@@ -40,32 +40,31 @@ export interface Wallet {
   index: number;
 }
 
-// Mock private keys for MVP (no real funds, for simulation only)
-const MOCK_PRIVATE_KEYS = [
-  '0x1111111111111111111111111111111111111111111111111111111111111111',
-  '0x2222222222222222222222222222222222222222222222222222222222222222',
-  '0x3333333333333333333333333333333333333333333333333333333333333333',
-  '0x4444444444444444444444444444444444444444444444444444444444444444',
-  '0x5555555555555555555555555555555555555555555555555555555555555555',
-  '0x6666666666666666666666666666666666666666666666666666666666666666',
-  '0x7777777777777777777777777777777777777777777777777777777777777777',
-  '0x8888888888888888888888888888888888888888888888888888888888888888',
-  '0x9999999999999999999999999999999999999999999999999999999999999999',
-  '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-] as const;
+/**
+ * Generate a deterministic unique private key per agent index.
+ * Uses (index + 1) as the raw private key value, zero-padded to 32 bytes.
+ * Valid secp256k1 private keys must be in [1, group_order-1]; small integers are valid.
+ * Supports up to 2^32 - 1 unique agents.
+ */
+const indexToPrivateKey = (index: number): `0x${string}` => {
+  const n = BigInt(index + 1); // +1 to avoid 0x000...0000 which is invalid
+  return `0x${n.toString(16).padStart(64, '0')}` as `0x${string}`;
+};
 
 export const createHDWallet = (index: number, seed?: string): Wallet => {
-  // Use configured key if available, otherwise use mock key
-  const privateKey = seed || process.env.MASTER_WALLET_PRIVATE_KEY || MOCK_PRIVATE_KEYS[index % MOCK_PRIVATE_KEYS.length];
-  
-  // Ensure proper hex format
-  const formattedKey = privateKey.startsWith('0x') ? privateKey : `0x${privateKey}`;
-  
-  const account = privateKeyToAccount(formattedKey as `0x${string}`);
-  
+  const privateKey: `0x${string}` = seed
+    ? (seed.startsWith('0x') ? seed as `0x${string}` : `0x${seed}` as `0x${string}`)
+    : (process.env.MASTER_WALLET_PRIVATE_KEY
+        ? (process.env.MASTER_WALLET_PRIVATE_KEY.startsWith('0x')
+            ? process.env.MASTER_WALLET_PRIVATE_KEY as `0x${string}`
+            : `0x${process.env.MASTER_WALLET_PRIVATE_KEY}` as `0x${string}`)
+        : indexToPrivateKey(index));
+
+  const account = privateKeyToAccount(privateKey);
+
   return {
     address: account.address,
-    privateKey: formattedKey,
+    privateKey,
     index,
   };
 };

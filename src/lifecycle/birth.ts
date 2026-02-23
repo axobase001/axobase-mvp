@@ -4,9 +4,10 @@
  */
 
 import { DynamicGenome, AgentId, createFounderGenome, crossover } from '../genome/index.js';
-import { createHDWallet, transferUSDC } from '../tools/wallet.js';
+import { createHDWallet } from '../tools/wallet.js';
 import { initializeAgentQueue } from '../tools/network.js';
 import { env } from '../config/env.js';
+import { CONSTANTS } from '../config/constants.js';
 
 export interface AgentConfig {
   id: AgentId;
@@ -48,30 +49,16 @@ export const createOffspring = async (
   
   const wallet = createHDWallet(index);
   initializeAgentQueue(wallet.address);
-  
-  // Transfer initial balance from parents
-  const balancePerParent = env.INITIAL_USDC_PER_AGENT / 2;
-  
-  try {
-    await transferUSDC(
-      createHDWallet(parent1.walletIndex),
-      wallet.address,
-      balancePerParent
-    );
-    await transferUSDC(
-      createHDWallet(parent2.walletIndex),
-      wallet.address,
-      balancePerParent
-    );
-  } catch {
-    // DECISION: Mock transfers allowed in MVP for testing
-  }
-  
+
+  // 子代初始资金来自父母各贡献 BREEDING_COST_PER_PARENT（在 survival.ts phase_breedingCheck 和
+  // population.ts 中各自从父母余额扣除）。此处直接设置子代余额，不依赖链上转账。
+  const offspringBalance = CONSTANTS.OFFSPRING_INITIAL_BALANCE;
+
   return {
     id: wallet.address,
     walletIndex: index,
     genome: childGenome,
     parentIds: [parent1.id, parent2.id],
-    initialBalance: env.INITIAL_USDC_PER_AGENT,
+    initialBalance: offspringBalance,
   };
 };

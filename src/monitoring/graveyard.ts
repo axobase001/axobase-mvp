@@ -487,7 +487,7 @@ export function getGraveyardStats(): {
   // 简化实现
   return {
     totalRecorded: 0,
-    byCause: { economic: 0, genetic: 0, natural: 0, suicide: 0 },
+    byCause: { economic: 0, genetic: 0, natural: 0, suicide: 0, starvation: 0, competition: 0, plague: 0, senescence: 0, unknown: 0 },
     averageLifespan: 0,
   };
 }
