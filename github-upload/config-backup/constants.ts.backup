@@ -1,0 +1,38 @@
+/**
+ * Global Constants
+ */
+
+export const CONSTANTS = {
+  TICK_INTERVAL_MS: 600_000,
+  SNAPSHOT_INTERVAL_MS: 3_600_000,
+  CSV_EXPORT_INTERVAL_MS: 86_400_000,
+
+  DEATH_BALANCE_THRESHOLD: 0.01,
+  BREEDING_BALANCE_THRESHOLD: 5.0,      // 余额门槛 5 USDC（降低繁殖门槛）
+  BREEDING_COST_PER_PARENT: 3.0,        // 父母各出 3 USDC
+  OFFSPRING_INITIAL_BALANCE: 6.0,       // 子代获得 6 USDC（3+3）
+  
+  // 实验结束条件
+  EXPERIMENT_END_BALANCE: 500.0,        // 条件A: 存款>500USDC
+  EXPERIMENT_END_AGE: 720,              // 条件B: 生存>720 ticks
+  EXPERIMENT_END_DESCENDANTS_RATIO: 0.5, // 条件C: 后代占比>50%
+  EXPERIMENT_END_MIN_POPULATION: 50,    // 条件C: 最小种群50个
+  EMERGENCY_BALANCE_THRESHOLD: 2.0,
+
+  NEONATE_DURATION: 5,                 // neonate 5 ticks
+  JUVENILE_DURATION: 5,                 // juvenile 5 ticks (共10 ticks后成年)
+  MINIMUM_BREEDING_AGE: 10,            // 最小繁殖年龄 10 ticks (等于成年)
+  BREEDING_COOLDOWN: 15,                // 繁殖冷却 15 ticks
+
+  INITIAL_GENE_COUNT: 63,
+  MAX_GENE_COUNT: 200,
+  MIN_GENE_COUNT: 20,
+
+  BASE_MUTATION_RATE: 0.02,
+  BASE_DUPLICATION_RATE: 0.01,
+  BASE_DELETION_RATE: 0.01,
+  BASE_HGT_RATE: 0.001,
+  BASE_DE_NOVO_RATE: 0.001,
+} as const;
+
+export type ConstantKey = keyof typeof CONSTANTS;

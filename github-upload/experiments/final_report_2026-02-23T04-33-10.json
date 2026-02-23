@@ -1,0 +1,298 @@
+{
+  "experiment_summary": {
+    "start_time": "2026-02-23T04:33:10.178Z",
+    "end_time": "2026-02-23T04:35:10.229Z",
+    "total_ticks": 3,
+    "duration_minutes": 2,
+    "ended_by": "manual_stop"
+  },
+  "population_evolution": {
+    "initial_agents": 10,
+    "final_alive": 10,
+    "final_dead": 0,
+    "breeding_events": 0,
+    "death_events": 0,
+    "initial_age": 18,
+    "final_age": 20,
+    "oldest_agent": 20,
+    "strategy_distribution_start": {
+      "juvenile": 10
+    },
+    "strategy_distribution_end": {
+      "juvenile": 10
+    }
+  },
+  "financial_analysis": {
+    "initial_avg_balance": 3.088335392712142,
+    "final_avg_balance": 4.254462648380471,
+    "balance_change": 1.1661,
+    "balance_change_percent": 37.76,
+    "max_balance_observed": 4.254462648380471,
+    "min_balance_observed": 2.9775852795085633,
+    "average_balance_over_time": 3.4401,
+    "final_min_balance": 0.0005709401347468706,
+    "final_max_balance": 7.435359380697528,
+    "total_liquid": 42.54,
+    "total_locked": 0
+  },
+  "cost_analysis": {
+    "total_costs": 0.137,
+    "cost_breakdown": {
+      "compute": 0.01,
+      "inference": 0.003,
+      "gas": 0.005,
+      "storage": 0.001,
+      "genome": 0.012,
+      "total": 0.137
+    },
+    "cost_per_agent": 0.0137
+  },
+  "maternal_health": {
+    "final_status": "healthy",
+    "api_calls_today": 0,
+    "api_calls_limit": 10,
+    "estimated_monthly_cost": 0
+  },
+  "graveyard_stats": {
+    "totalDeaths": 0,
+    "byCause": {},
+    "averageLifespan": 0,
+    "recentTrend": "worsening"
+  },
+  "tick_history": [
+    {
+      "tick": 1,
+      "timestamp": "2026-02-23T04:33:10.178Z",
+      "alive": 10,
+      "dead": 0,
+      "avgBalance": 3.088335392712142,
+      "medianBalance": 3.666349085873381,
+      "minBalance": 0.001182115430370178,
+      "maxBalance": 6.806841266192578,
+      "totalCosts": 0.137,
+      "breedingEvents": 0,
+      "deathEvents": 0,
+      "avgAge": 18
+    },
+    {
+      "tick": 2,
+      "timestamp": "2026-02-23T04:34:10.211Z",
+      "alive": 10,
+      "dead": 0,
+      "avgBalance": 2.9775852795085633,
+      "medianBalance": 3.5112375545613776,
+      "minBalance": 0.000046725694562713534,
+      "maxBalance": 6.533209235883608,
+      "totalCosts": 0.137,
+      "breedingEvents": 0,
+      "deathEvents": 0,
+      "avgAge": 19
+    },
+    {
+      "tick": 3,
+      "timestamp": "2026-02-23T04:35:10.229Z",
+      "alive": 10,
+      "dead": 0,
+      "avgBalance": 4.254462648380471,
+      "medianBalance": 5.11303532242597,
+      "minBalance": 0.0005709401347468706,
+      "maxBalance": 7.435359380697528,
+      "totalCosts": 0.137,
+      "breedingEvents": 0,
+      "deathEvents": 0,
+      "avgAge": 20
+    }
+  ],
+  "final_agents": [
+    {
+      "id": "0x19E7E376E7C213B7E7e7e46cc70A5dD086DAff2A",
+      "name": "费曼",
+      "balance": 0.0017511750716305077,
+      "age": 20,
+      "stage": "juvenile",
+      "status": "alive",
+      "llmCalls": 10,
+      "totalEarned": {
+        "defi": 0,
+        "tasks": 6.989811624999999,
+        "events": 0,
+        "tokens": 0
+      },
+      "totalSpent": {
+        "operational": 0.767,
+        "losses": 154.32852600688048
+      }
+    },
+    {
+      "id": "0x1563915e194D8CfBA1943570603F7606A3115508",
+      "name": "张衡",
+      "balance": 7.435359380697528,
+      "age": 20,
+      "stage": "juvenile",
+      "status": "alive",
+      "llmCalls": 13,
+      "totalEarned": {
+        "defi": 0,
+        "tasks": 9.465758124999999,
+        "events": 0,
+        "tokens": 0
+      },
+      "totalSpent": {
+        "operational": 0.767,
+        "losses": 142.37905023424534
+      }
+    },
+    {
+      "id": "0x5CbDd86a2FA8Dc4bDdd8a8f69dBa48572EeC07FB",
+      "name": "牛顿",
+      "balance": 0.0005709401347468706,
+      "age": 20,
+      "stage": "juvenile",
+      "status": "alive",
+      "llmCalls": 16,
+      "totalEarned": {
+        "defi": 0,
+        "tasks": 7.068732875,
+        "events": 0,
+        "tokens": 0
+      },
+      "totalSpent": {
+        "operational": 0.277,
+        "losses": 134.47927454775925
+      }
+    },
+    {
+      "id": "0x7564105E977516C53bE337314c7E53838967bDaC",
+      "name": "爱因斯坦",
+      "balance": 5.11303532242597,
+      "age": 20,
+      "stage": "juvenile",
+      "status": "alive",
+      "llmCalls": 16,
+      "totalEarned": {
+        "defi": 0,
+        "tasks": 8.36546325,
+        "events": 0,
+        "tokens": 0
+      },
+      "totalSpent": {
+        "operational": 0.767,
+        "losses": 125.55785230574915
+      }
+    },
+    {
+      "id": "0xe1fAE9b4fAB2F5726677ECfA912d96b0B683e6a9",
+      "name": "阿基米德",
+      "balance": 3.232852137303281,
+      "age": 20,
+      "stage": "juvenile",
+      "status": "alive",
+      "llmCalls": 16,
+      "totalEarned": {
+        "defi": 0,
+        "tasks": 10.368963249999998,
+        "events": 0,
+        "tokens": 0
+      },
+      "totalSpent": {
+        "operational": 0.767,
+        "losses": 120.0737891264108
+      }
+    },
+    {
+      "id": "0xdb2430B4e9AC14be6554d3942822BE74811A1AF9",
+      "name": "居里",
+      "balance": 6.136126182915652,
+      "age": 20,
+      "stage": "juvenile",
+      "status": "alive",
+      "llmCalls": 12,
+      "totalEarned": {
+        "defi": 0,
+        "tasks": 3.8365775000000006,
+        "events": 0,
+        "tokens": 0
+      },
+      "totalSpent": {
+        "operational": 0.767,
+        "losses": 150.03689859965408
+      }
+    },
+    {
+      "id": "0xAe72A48c1a36bd18Af168541c53037965d26e4A8",
+      "name": "牛顿",
+      "balance": 4.679672845870952,
+      "age": 20,
+      "stage": "juvenile",
+      "status": "alive",
+      "llmCalls": 17,
+      "totalEarned": {
+        "defi": 0,
+        "tasks": 10.808279875,
+        "events": 0,
+        "tokens": 0
+      },
+      "totalSpent": {
+        "operational": 0.767,
+        "losses": 123.69067647832776
+      }
+    },
+    {
+      "id": "0x62f94E9AC9349BCCC61Bfe66ddAdE6292702EcB6",
+      "name": "牛顿",
+      "balance": 6.915218963726274,
+      "age": 20,
+      "stage": "juvenile",
+      "status": "alive",
+      "llmCalls": 14,
+      "totalEarned": {
+        "defi": 0,
+        "tasks": 7.29063325,
+        "events": 0,
+        "tokens": 0
+      },
+      "totalSpent": {
+        "operational": 0.767,
+        "losses": 126.72938022855979
+      }
+    },
+    {
+      "id": "0x0D8e461687b7D06f86EC348E0c270b0F279855F0",
+      "name": "牛顿",
+      "balance": 3.1249899443855074,
+      "age": 20,
+      "stage": "juvenile",
+      "status": "alive",
+      "llmCalls": 15,
+      "totalEarned": {
+        "defi": 0,
+        "tasks": 7.32679825,
+        "events": 0,
+        "tokens": 0
+      },
+      "totalSpent": {
+        "operational": 0.767,
+        "losses": 105.15687349235776
+      }
+    },
+    {
+      "id": "0x8fd379246834eac74B8419FfdA202CF8051F7A03",
+      "name": "爱因斯坦",
+      "balance": 5.905049591273177,
+      "age": 20,
+      "stage": "juvenile",
+      "status": "alive",
+      "llmCalls": 13,
+      "totalEarned": {
+        "defi": 0,
+        "tasks": 8.170928250000001,
+        "events": 0,
+        "tokens": 0
+      },
+      "totalSpent": {
+        "operational": 0.277,
+        "losses": 118.42322053139817
+      }
+    }
+  ]
+}

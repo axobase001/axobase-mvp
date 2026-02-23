@@ -1,0 +1,14 @@
+{
+  "sessionId": "2026-02-23T08-59-54",
+  "tickCount": 115,
+  "timestamp": "2026-02-23T10:55:09.669Z",
+  "stats": {
+    "totalTicks": 115,
+    "successfulTicks": 111,
+    "failedTicks": 4,
+    "lastTickTime": "2026-02-23T10:55:09.656Z",
+    "startBalance": 30,
+    "currentBalance": 17.408682760655918
+  },
+  "elapsedMinutes": "115.25"
+}

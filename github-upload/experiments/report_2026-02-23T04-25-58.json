@@ -1,0 +1,82 @@
+{
+  "experiment_summary": {
+    "start_time": "2026-02-23T04:25:58.308Z",
+    "end_time": "2026-02-23T04:29:58.403Z",
+    "total_ticks": 5,
+    "duration_minutes": 4
+  },
+  "population_evolution": {
+    "initial_agents": 10,
+    "final_alive": 10,
+    "final_dead": 0,
+    "breeding_events": 0,
+    "death_events": 0,
+    "strategy_distribution": {
+      "juvenile": 10
+    }
+  },
+  "financial_summary": {
+    "initial_avg_balance": 3.257994245684961,
+    "final_avg_balance": 2.753905890377833,
+    "balance_change": -0.5041,
+    "min_balance": 0.01589279926623574,
+    "max_balance": 6.769527722238082,
+    "total_costs": 0.137,
+    "total_liquid": 27.54,
+    "cost_breakdown": {
+      "compute": 0.01,
+      "inference": 0.003,
+      "gas": 0.005,
+      "storage": 0.001,
+      "genome": 0.012,
+      "total": 0.137
+    }
+  },
+  "maternal_health": {
+    "final_status": "healthy",
+    "api_calls_today": 0,
+    "estimated_monthly_cost": 0
+  },
+  "tick_history": [
+    {
+      "tick": 1,
+      "timestamp": "2026-02-23T04:25:58.308Z",
+      "alive": 10,
+      "dead": 0,
+      "avgBalance": 3.257994245684961,
+      "totalCosts": 0.137
+    },
+    {
+      "tick": 2,
+      "timestamp": "2026-02-23T04:26:58.354Z",
+      "alive": 10,
+      "dead": 0,
+      "avgBalance": 2.2032629085240076,
+      "totalCosts": 0.137
+    },
+    {
+      "tick": 3,
+      "timestamp": "2026-02-23T04:27:58.376Z",
+      "alive": 10,
+      "dead": 0,
+      "avgBalance": 2.5414505546826227,
+      "totalCosts": 0.137
+    },
+    {
+      "tick": 4,
+      "timestamp": "2026-02-23T04:28:58.396Z",
+      "alive": 10,
+      "dead": 0,
+      "avgBalance": 4.662721874438212,
+      "totalCosts": 0.137
+    },
+    {
+      "tick": 5,
+      "timestamp": "2026-02-23T04:29:58.403Z",
+      "alive": 10,
+      "dead": 0,
+      "avgBalance": 2.753905890377833,
+      "totalCosts": 0.137
+    }
+  ]
+}

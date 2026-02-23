@@ -1,0 +1,16 @@
+{
+  "sessionId": "2026-02-23T08-59-54",
+  "logFile": "C:\\Users\\PC\\axobase-mvp\\experiment_logs_v4\\experiment_v4_2026-02-23T08-59-54.jsonl",
+  "tickCount": 118,
+  "lastUpdate": "2026-02-23T10:58:09.738Z",
+  "isRunning": true,
+  "isCompleted": false,
+  "stats": {
+    "totalTicks": 118,
+    "successfulTicks": 114,
+    "failedTicks": 4,
+    "lastTickTime": "2026-02-23T10:58:09.719Z",
+    "startBalance": 30,
+    "currentBalance": 18.311205964398646
+  }
+}

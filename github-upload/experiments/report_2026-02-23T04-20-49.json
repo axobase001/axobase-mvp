@@ -1,0 +1,106 @@
+{
+  "experiment_summary": {
+    "start_time": "2026-02-23T04:20:49.286Z",
+    "end_time": "2026-02-23T04:27:49.400Z",
+    "total_ticks": 8,
+    "duration_minutes": 7
+  },
+  "population_evolution": {
+    "initial_agents": 10,
+    "final_alive": 10,
+    "final_dead": 0,
+    "breeding_events": 0,
+    "death_events": 0,
+    "strategy_distribution": {
+      "juvenile": 10
+    }
+  },
+  "financial_summary": {
+    "initial_avg_balance": 2.889325501749112,
+    "final_avg_balance": 2.5414505546826227,
+    "balance_change": -0.3479,
+    "min_balance": 0.00013887657599999988,
+    "max_balance": 6.9201178727202075,
+    "total_costs": 0.137,
+    "total_liquid": 25.41,
+    "cost_breakdown": {
+      "compute": 0.01,
+      "inference": 0.003,
+      "gas": 0.005,
+      "storage": 0.001,
+      "genome": 0.012,
+      "total": 0.137
+    }
+  },
+  "maternal_health": {
+    "final_status": "healthy",
+    "api_calls_today": 0,
+    "estimated_monthly_cost": 0
+  },
+  "tick_history": [
+    {
+      "tick": 1,
+      "timestamp": "2026-02-23T04:20:49.286Z",
+      "alive": 10,
+      "dead": 0,
+      "avgBalance": 2.889325501749112,
+      "totalCosts": 0.137
+    },
+    {
+      "tick": 2,
+      "timestamp": "2026-02-23T04:21:49.313Z",
+      "alive": 10,
+      "dead": 0,
+      "avgBalance": 3.6269617407106893,
+      "totalCosts": 0.137
+    },
+    {
+      "tick": 3,
+      "timestamp": "2026-02-23T04:22:49.328Z",
+      "alive": 10,
+      "dead": 0,
+      "avgBalance": 5.681721282105073,
+      "totalCosts": 0.137
+    },
+    {
+      "tick": 4,
+      "timestamp": "2026-02-23T04:23:49.350Z",
+      "alive": 10,
+      "dead": 0,
+      "avgBalance": 6.413432009936291,
+      "totalCosts": 0.137
+    },
+    {
+      "tick": 5,
+      "timestamp": "2026-02-23T04:24:49.358Z",
+      "alive": 10,
+      "dead": 0,
+      "avgBalance": 6.2360269094218355,
+      "totalCosts": 0.137
+    },
+    {
+      "tick": 6,
+      "timestamp": "2026-02-23T04:25:49.370Z",
+      "alive": 10,
+      "dead": 0,
+      "avgBalance": 3.257994245684961,
+      "totalCosts": 0.137
+    },
+    {
+      "tick": 7,
+      "timestamp": "2026-02-23T04:26:49.379Z",
+      "alive": 10,
+      "dead": 0,
+      "avgBalance": 2.2032629085240076,
+      "totalCosts": 0.137
+    },
+    {
+      "tick": 8,
+      "timestamp": "2026-02-23T04:27:49.400Z",
+      "alive": 10,
+      "dead": 0,
+      "avgBalance": 2.5414505546826227,
+      "totalCosts": 0.137
+    }
+  ]
+}
