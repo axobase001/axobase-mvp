@@ -1,0 +1,29 @@
+{
+  "lastUpload": "ticktick-60-1771841866064-2026-02-23T10-17-46-071Z",
+  "tick": "tick-60-1771841866064",
+  "timestamp": 1771841866075,
+  "stats": {
+    "timestamp": 1771841866065,
+    "totalAgents": 10,
+    "aliveAgents": 10,
+    "deadAgents": 0,
+    "displayCount": "10/10",
+    "llmCallsThisTick": 9,
+    "totalLLMCalls": 573,
+    "averageBalance": 18.67445952189156,
+    "medianBalance": 23.559879713261097,
+    "minBalance": 0.27051107797952134,
+    "maxBalance": 26.356194352768586,
+    "averageAge": 61,
+    "oldestAgent": 61,
+    "breedingEvents": 0,
+    "deathEvents": 0,
+    "strategyDistribution": {
+      "adult": 10
+    },
+    "experimentStatus": {
+      "isRunning": true,
+      "isCompleted": false
+    }
+  }
+}
