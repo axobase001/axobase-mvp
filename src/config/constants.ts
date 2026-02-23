@@ -1,5 +1,17 @@
 /**
- * Global Constants
+ * Global Constants - Axobase MVP 核心配置
+ * 
+ * 本文件定义所有实验参数和阈值
+ * 
+ * V4 重要修改:
+ * - NEONATE_DURATION: 5 ticks (原10)
+ * - JUVENILE_DURATION: 5 ticks (原20)  
+ * - MINIMUM_BREEDING_AGE: 10 ticks (原15)
+ * - BREEDING_BALANCE_THRESHOLD: 5.0 (原8.0)
+ * 
+ * 修改原因: 加快发育进程，降低繁殖门槛，提高实验效率
+ * 
+ * @see CODEBASE_GUIDE.md 完整文档
  */
 
 export const CONSTANTS = {
@@ -8,15 +20,21 @@ export const CONSTANTS = {
   CSV_EXPORT_INTERVAL_MS: 86_400_000,
 
   DEATH_BALANCE_THRESHOLD: 0.01,
-  BREEDING_BALANCE_THRESHOLD: 5.0,
-  BREEDING_COST_PER_PARENT: 2.0,
-  OFFSPRING_INITIAL_BALANCE: 3.0,
+  BREEDING_BALANCE_THRESHOLD: 5.0,      // 余额门槛 5 USDC（降低繁殖门槛）
+  BREEDING_COST_PER_PARENT: 3.0,        // 父母各出 3 USDC
+  OFFSPRING_INITIAL_BALANCE: 6.0,       // 子代获得 6 USDC（3+3）
+  
+  // 实验结束条件
+  EXPERIMENT_END_BALANCE: 500.0,        // 条件A: 存款>500USDC
+  EXPERIMENT_END_AGE: 720,              // 条件B: 生存>720 ticks
+  EXPERIMENT_END_DESCENDANTS_RATIO: 0.5, // 条件C: 后代占比>50%
+  EXPERIMENT_END_MIN_POPULATION: 50,    // 条件C: 最小种群50个
   EMERGENCY_BALANCE_THRESHOLD: 2.0,
 
-  NEONATE_DURATION: 50,
-  JUVENILE_DURATION: 150,
-  MINIMUM_BREEDING_AGE: 200,
-  BREEDING_COOLDOWN: 50,
+  NEONATE_DURATION: 5,                 // neonate 5 ticks
+  JUVENILE_DURATION: 5,                 // juvenile 5 ticks (共10 ticks后成年)
+  MINIMUM_BREEDING_AGE: 10,            // 最小繁殖年龄 10 ticks (等于成年)
+  BREEDING_COOLDOWN: 15,                // 繁殖冷却 15 ticks
 
   INITIAL_GENE_COUNT: 63,
   MAX_GENE_COUNT: 200,
