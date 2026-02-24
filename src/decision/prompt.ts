@@ -93,6 +93,11 @@ ETH Gas: ${perception.ethBalance.toFixed(4)} ETH${emergencyNote}
 === 你现在可以选择的行动 ===
   ${formatStrategies(filteredStrategies)}
 
-你必须选择一个行动。只输出行动编号和简短理由。
-格式：ACTION: <编号> | REASON: <一句话>`;
+你必须选择一个行动。只输出以下 JSON，不要加任何其他文字：
+{
+  "action": 数字（对应上方行动编号）,
+  "reasoning": "你选择这个行动的完整理由（1-3句话）",
+  "confidence": 0到100之间的整数，表示你对这个决策的确信程度。考虑：你对当前环境的了解程度、行动风险与你的风险承受能力是否匹配、信息是否充足。信息不足或情况不确定时置信度低，行动完全符合你的特征且环境清晰时置信度高,
+  "emotion": "用一个英文词描述你当前的状态，如：cautious, excited, desperate, curious, calm, anxious, determined, hopeful, fearful, confident"
+}`;
 };

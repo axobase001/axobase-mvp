@@ -10,6 +10,7 @@ import { env } from '../config/env.js';
 import { CONSTANTS } from '../config/constants.js';
 import { setSimulatedBalance } from '../tools/wallet.js';
 import { logOffspring, writeOffspringSummary, OffspringRecord } from './conversation-logger.js';
+import { drainWindowStats, writeInferenceStats } from './inference-logger.js';
 import { expressGenome } from '../genome/index.js';
 import { appendFileSync, existsSync, mkdirSync } from 'fs';
 
@@ -58,6 +59,13 @@ export class Population {
 
   /** 涌现行为触发次数 */
   emergentBehaviorCount: number = 0;
+
+  /** 最近 5 tick 的死亡数量（用于 environmentSnapshot） */
+  private recentDeathCounts: number[] = [];
+  /** 上一次环境事件类型（用于 populationContext） */
+  private lastEnvironmentalEvent: string | null = null;
+  /** 用于每 10 tick 打印推理统计 */
+  private lastStatsTick: number = 0;
 
   async initialize(count: number = env.INITIAL_AGENT_COUNT): Promise<void> {
     for (let i = 0; i < count; i++) {
@@ -120,6 +128,9 @@ export class Population {
         appendFileSync('./logs/events.txt', line);
       } catch { /* best effort */ }
     }
+
+    // Track last event for populationContext
+    this.lastEnvironmentalEvent = eventType;
   }
 
   // ── 竞争淘汰（种群超过容量时）────────────────────────────────────────────
@@ -157,7 +168,13 @@ export class Population {
     const currentTick = (anyAlive?.age ?? 0) + 1;
 
     // 1. 环境灾难事件（tick 开始前）
+    this.lastEnvironmentalEvent = null;
     this.rollEnvironmentalEvent(currentTick);
+
+    // 计算最近 5 tick 死亡数
+    const recentDeaths = this.recentDeathCounts.slice(-5).reduce((s, v) => s + v, 0);
+    const populationContext = { recentDeaths, activeEvent: this.lastEnvironmentalEvent };
+    const deathsAtTickStart = this.deathEvents;
 
     const balances = new Map<string, number>();
     for (const [id, agent] of this.agents) {
@@ -167,7 +184,7 @@ export class Population {
     const aliveAgents = Array.from(this.agents.values()).filter(a => a.isAlive);
 
     for (const agent of aliveAgents) {
-      const { tombstone, breedingRequest } = await agent.tick(aliveAgents, balances);
+      const { tombstone, breedingRequest } = await agent.tick(aliveAgents, balances, populationContext);
 
       if (tombstone) {
         this.tombstones.push(tombstone);
@@ -203,6 +220,11 @@ export class Population {
           }
 
           const offspringConfig = await this.createOffspring(agent, mate);
+          // 推理谱系：记录父母最后推理 ID
+          offspringConfig.parentInferenceIds = {
+            parent1LastInferenceId: agent.survivalState.lastInferenceId,
+            parent2LastInferenceId: mate.survivalState.lastInferenceId,
+          };
           const offspring = new Agent(offspringConfig);
           this.agents.set(offspring.id, offspring);
           this.breedingEvents++;
@@ -265,6 +287,28 @@ export class Population {
 
     // 2. 竞争淘汰（tick 结束后）
     this.enforceCarryingCapacity(currentTick);
+
+    // 3. 记录本 tick 死亡数（用于 recentDeathCounts 窗口）
+    const tickDeaths = this.deathEvents - deathsAtTickStart;
+    this.recentDeathCounts.push(tickDeaths);
+    if (this.recentDeathCounts.length > 10) this.recentDeathCounts.shift();
+
+    // 4. 每 10 ticks 输出推理统计
+    if (currentTick - this.lastStatsTick >= 10) {
+      this.lastStatsTick = currentTick;
+      try {
+        const stats = drainWindowStats(currentTick);
+        writeInferenceStats(stats);
+        const s = stats as Record<string, unknown>;
+        console.log(
+          `\n📈 推理统计 [tick ${currentTick}] ` +
+          `总推理:${s.totalInferences} 平均置信度:${s.avgConfidence}% ` +
+          `语言:${JSON.stringify(s.languageDistribution)} ` +
+          (Object.keys((s.anomalyFlags as object) || {}).length > 0 ? `异常:${JSON.stringify(s.anomalyFlags)}` : '') +
+          '\n'
+        );
+      } catch { /* best effort */ }
+    }
   }
 
   private async createOffspring(parent1: Agent, parent2: Agent): Promise<AgentConfig> {

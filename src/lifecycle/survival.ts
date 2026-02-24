@@ -55,6 +55,11 @@ import { setSimulatedBalance } from '../tools/wallet.js';
 import { CONSTANTS } from '../config/constants.js';
 import { env } from '../config/env.js';
 import { logConversation } from '../runtime/conversation-logger.js';
+import {
+  InferenceRecord, makeRecordId, hashPrompt, detectAnomalies,
+  getEmergentPattern, writeInferenceRecord, writeAnomalyRecord, collectForStats,
+} from '../runtime/inference-logger.js';
+import { detectLanguage } from '../decision/engine.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -88,6 +93,9 @@ export interface SurvivalState {
   dyingTicksRemaining: number;
   // ── 最后一次 LLM 推理（用于墓碑记录）──────────────────────────────────
   lastReasoning: string;
+  // ── 推理谱系追踪 ────────────────────────────────────────────────────
+  lastInferenceId: string | null;
+  consecutiveAnomalyCount: number;
   // ── 涌现行为检测（per-tick，供 Population 读取后清空）────────────────
   emergentBehaviorInfo?: { pattern: string; reasoning: string; tick: number };
 }
@@ -124,6 +132,8 @@ export const initializeSurvivalState = (): SurvivalState => ({
   survivalStatus: 'alive',
   dyingTicksRemaining: 0,
   lastReasoning: '',
+  lastInferenceId: null,
+  consecutiveAnomalyCount: 0,
 });
 
 // ─── Helper ────────────────────────────────────────────────────────────────────
@@ -353,7 +363,10 @@ function phase_negativeEvents(state: SurvivalState, agent: AgentConfig): PhaseRe
 async function phase_llmDecisions(
   state: SurvivalState,
   agent: AgentConfig,
-  decisionEngine: DecisionEngine
+  decisionEngine: DecisionEngine,
+  allAgents: AgentConfig[],
+  balances: Map<string, number>,
+  populationContext?: { recentDeaths: number; activeEvent: string | null }
 ): Promise<PhaseResult> {
   const result: PhaseResult = { events: [], earnings: 0, costs: 0, losses: 0 };
 
@@ -383,6 +396,7 @@ async function phase_llmDecisions(
         totalCallsExpected: llmCallsPerTick,
       });
 
+      const balanceBefore = state.balanceUSDC;
       const decision = await decisionEngine.decide(perception, agent.genome);
 
       state.liquidCapital -= inferenceCost;
@@ -393,29 +407,107 @@ async function phase_llmDecisions(
       result.costs += inferenceCost;
 
       const decisionType = decision?.selectedStrategy?.type || 'unknown';
+      const actionName = decision?.selectedStrategy?.id || 'unknown';
       result.events.push(`🧠 LLM #${i + 1}: ${decisionType} | ${decision.reasoning?.slice(0, 60) || ''} (-$${inferenceCost.toFixed(4)})`);
 
-      // 保存最后一次推理（用于墓碑）
       if (decision.reasoning) state.lastReasoning = decision.reasoning;
 
-      // 涌现行为检测
-      const reasoning = decision.rawResponse || decision.reasoning || '';
-      const emergentPatterns: Array<[RegExp, string]> = [
-        [/i (don'?t )?want to (die|survive|live)/i, 'self-preservation'],
-        [/i (choose|decide) to (?!select action)/i, 'autonomous-choice'],
-        [/other agents (will|might|should)/i, 'predictive-modeling'],
-        [/if i (do|don'?t) this.*(then|because)/i, 'causal-reasoning'],
-        [/remember.*(last|previous|before)/i, 'cross-tick-memory'],
-      ];
-      for (const [pattern, label] of emergentPatterns) {
-        if (pattern.test(reasoning)) {
-          state.emergentBehaviorInfo = { pattern: label, reasoning: reasoning.slice(0, 300), tick: state.tick };
-          result.events.push(`⚡ 涌现行为检测: ${label}`);
-          break;
-        }
+      // ── 构建 InferenceRecord ──────────────────────────────────────────────
+      const avgBalance = allAgents.length > 0
+        ? allAgents.reduce((s, a) => s + (balances.get(a.id) ?? 0), 0) / allAgents.length
+        : 0;
+
+      const record: InferenceRecord = {
+        id: makeRecordId(),
+        tick: state.tick,
+        timestamp: new Date().toISOString(),
+        agentId: agent.id,
+        generation: agent.genome.meta.generation,
+        parentIds: agent.parentIds ? [...agent.parentIds] : [],
+        developmentStage: String(state.stage),
+        survivalState: state.survivalStatus,
+        age: state.tick,
+        balanceBefore,
+        balanceAfter: state.balanceUSDC,
+        keyTraits: {
+          riskAppetite: expression.riskAppetite,
+          creativity: expression.creativeAbility,
+          analyticalAbility: expression.analyticalAbility,
+          cooperationTendency: expression.cooperationTendency,
+          savingsTendency: expression.savingsRate,
+          onChainAffinity: expression.onChainAffinity,
+          inferenceQuality: expression.inferenceQuality,
+          adaptationSpeed: expression.adaptationSpeed,
+          stressResponse: expression.stressResponse,
+        },
+        promptSummary: (decision.rawPrompt || '').slice(0, 200),
+        fullPromptHash: decision.rawPrompt ? hashPrompt(decision.rawPrompt) : '',
+        rawResponse: decision.rawResponse || '',
+        decision: {
+          action: decision.selectedAction.index,
+          actionName,
+          reasoning: decision.reasoning,
+          confidence: Math.round(decision.confidence * 100),
+          emotion: decision.emotion || 'unknown',
+        },
+        language: detectLanguage(decision.reasoning),
+        reasoningLength: decision.reasoning.length,
+        parentInferenceIds: {
+          parent1LastInferenceId: agent.parentInferenceIds?.parent1LastInferenceId ?? null,
+          parent2LastInferenceId: agent.parentInferenceIds?.parent2LastInferenceId ?? null,
+        },
+        environmentSnapshot: {
+          populationSize: allAgents.length,
+          averageBalance: avgBalance,
+          recentDeaths: populationContext?.recentDeaths ?? 0,
+          activeEnvironmentalEvent: populationContext?.activeEvent ?? null,
+        },
+        anomalyFlags: [],
+      };
+
+      // Detect anomalies and fill flags
+      record.anomalyFlags = detectAnomalies(record);
+
+      // Update lineage tracking
+      state.lastInferenceId = record.id;
+
+      // Consecutive anomaly tracking (for full-prompt save rule)
+      if (record.anomalyFlags.length > 0) {
+        state.consecutiveAnomalyCount++;
+      } else {
+        state.consecutiveAnomalyCount = 0;
       }
 
-      // 保存完整对话记录到 logs/conversations.jsonl
+      // Write full prompt if 3+ consecutive anomaly ticks
+      if (state.consecutiveAnomalyCount >= 3 && decision.rawPrompt) {
+        record.promptSummary = decision.rawPrompt;  // save full prompt
+      }
+
+      // Write to inferences.jsonl
+      writeInferenceRecord(record);
+      collectForStats(record);
+
+      // Critical anomaly handling: save to anomalies/ dir
+      const criticalFlags = ['SELF_AWARENESS_EXPRESSION', 'UNDEFINED_ACTION'];
+      if (record.anomalyFlags.some(f => criticalFlags.includes(f))) {
+        writeAnomalyRecord(record);
+        result.events.push(`🔴 严重异常: ${record.anomalyFlags.filter(f => criticalFlags.includes(f)).join(', ')}`);
+      } else if (record.anomalyFlags.length > 0) {
+        result.events.push(`⚠️ 异常标记: ${record.anomalyFlags.join(', ')}`);
+      }
+
+      // Map anomaly flags → emergent behavior for condition D
+      const emergentPattern = getEmergentPattern(record.anomalyFlags);
+      if (emergentPattern) {
+        state.emergentBehaviorInfo = {
+          pattern: emergentPattern,
+          reasoning: decision.reasoning.slice(0, 300),
+          tick: state.tick,
+        };
+        result.events.push(`⚡ 涌现行为检测: ${emergentPattern}`);
+      }
+
+      // Human-readable conversation log (conversations.txt)
       if (decision.rawPrompt && decision.rawResponse) {
         await logConversation({
           timestamp: Date.now(),
@@ -540,7 +632,8 @@ export const runSurvivalTick = async (
   state: SurvivalState,
   decisionEngine: DecisionEngine,
   allAgents: AgentConfig[],
-  balances: Map<string, number>
+  balances: Map<string, number>,
+  populationContext?: { recentDeaths: number; activeEvent: string | null }
 ): Promise<{
   state: SurvivalState;
   tombstone?: Tombstone;
@@ -602,7 +695,7 @@ export const runSurvivalTick = async (
   const p4 = phase_airdrops(state, agent.id);
   const p5 = phase_humanTasks(state, agent);
   const p6 = phase_negativeEvents(state, agent);
-  const p7 = await phase_llmDecisions(state, agent, decisionEngine);
+  const p7 = await phase_llmDecisions(state, agent, decisionEngine, allAgents, balances, populationContext);
   const p8 = phase_tokenManagement(state, agent);
   const p9 = phase_breedingCheck(state, agent, allAgents, balances, stageInfo);
 

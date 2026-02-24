@@ -15,6 +15,11 @@ export interface AgentConfig {
   genome: DynamicGenome;
   parentIds: [AgentId, AgentId] | null;
   initialBalance: number;
+  // 父母最后一次推理记录 ID（繁殖时设置，用于谱系追踪）
+  parentInferenceIds?: {
+    parent1LastInferenceId: string | null;
+    parent2LastInferenceId: string | null;
+  };
 }
 
 export const createFounderAgent = async (index: number): Promise<AgentConfig> => {

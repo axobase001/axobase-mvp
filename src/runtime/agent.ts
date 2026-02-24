@@ -79,7 +79,11 @@ export class Agent {
     return expressGenome(this.genome);
   }
 
-  async tick(allAgents: Agent[], balances: Map<string, number>): Promise<{ tombstone?: Tombstone; breedingRequest?: Agent }> {
+  async tick(
+    allAgents: Agent[],
+    balances: Map<string, number>,
+    populationContext?: { recentDeaths: number; activeEvent: string | null }
+  ): Promise<{ tombstone?: Tombstone; breedingRequest?: Agent }> {
     if (!this.isAlive) return {};
 
     const result = await runSurvivalTick(
@@ -87,7 +91,8 @@ export class Agent {
       this.survivalState,
       this.decisionEngine,
       allAgents.map(a => a.toConfig()),
-      balances
+      balances,
+      populationContext
     );
 
     this.survivalState = result.state;
